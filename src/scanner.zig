@@ -14,9 +14,9 @@ pub const Scanner = struct {
         _ = self;
     }
 
-    pub fn init(self: *Scanner, src_path: []const u8) !void {
+    pub fn init(self: *Scanner, src_path: []const u8, max_bytes: usize) !void {
         self.tokens = std.ArrayList(Token).init(self.alloc);
-        self.src_buf = try std.fs.cwd().readFileAlloc(self.alloc, src_path, 100000);
+        self.src_buf = try std.fs.cwd().readFileAlloc(self.alloc, src_path, max_bytes);
     }
 
     pub fn deinit(self: *Scanner) void {
@@ -29,7 +29,8 @@ test "initialization test" {
     var scanner = Scanner{
         .alloc = std.testing.allocator,
     };
-    scanner.init("test_src.lox") catch unreachable;
+    const max_bytes = 10000;
+    scanner.init("test_src.lox", max_bytes) catch unreachable;
     defer scanner.deinit();
 
     std.debug.assert(scanner.src_buf.?.len > 0);
