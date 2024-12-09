@@ -1,3 +1,4 @@
+const std = @import("std");
 pub const TokenType = enum {
     // Single character tokens:
     LEFT_PAREN,
@@ -212,4 +213,26 @@ pub const Token = union(TokenType) {
     EOF: struct {
         line: usize,
     },
+
+    pub fn getLexeme(self: Token) ?[]const u8 {
+        switch (self) {
+            inline else => |inner_struct| {
+                if (@hasField(@TypeOf(inner_struct), "lexeme")) {
+                    const lexeme = @field(inner_struct, "lexeme");
+                    if (@TypeOf(lexeme) == u8) {
+                        return &[_]u8{lexeme};
+                    } else {
+                        return lexeme;
+                    }
+                } else {
+                    return null;
+                }
+            },
+        }
+    }
 };
+
+test "test get lexeme" {
+    const token = Token{ .IDENTIFIER = .{ .line = 0, .lexeme = "hello" } };
+    try std.testing.expectEqualStrings("hello", token.getLexeme().?);
+}
