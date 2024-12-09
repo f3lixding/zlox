@@ -102,7 +102,7 @@ pub const Token = union(TokenType) {
     },
     BANG_EQUAL: struct {
         line: usize,
-        lexeme: [2]u8 = "!=",
+        lexeme: *const [2]u8 = "!=",
     },
     EQUAL: struct {
         line: usize,
@@ -110,7 +110,7 @@ pub const Token = union(TokenType) {
     },
     EQUAL_EQUAL: struct {
         line: usize,
-        lexeme: []u8 = "==",
+        lexeme: *const [2]u8 = "==",
     },
     GREATER: struct {
         line: usize,
@@ -118,7 +118,7 @@ pub const Token = union(TokenType) {
     },
     GREATER_EQUAL: struct {
         line: usize,
-        lexeme: []u8 = ">=",
+        lexeme: *const [2]u8 = ">=",
     },
     LESS: struct {
         line: usize,
@@ -126,17 +126,17 @@ pub const Token = union(TokenType) {
     },
     LESS_EQUAL: struct {
         line: usize,
-        lexeme: []u8 = "<=",
+        lexeme: *const [2]u8 = "<=",
     },
 
     // Literals:
     IDENTIFIER: struct {
         line: usize,
-        lexeme: []u8,
+        lexeme: []const u8,
     },
     STRING: struct {
         line: usize,
-        lexeme: []u8,
+        lexeme: []const u8,
     },
     NUMBER: struct {
         line: usize,
@@ -146,7 +146,7 @@ pub const Token = union(TokenType) {
     // Keywords:
     AND: struct {
         line: usize,
-        lexeme: []u8 = "and",
+        lexeme: *const [3]u8 = "and",
     },
     CLASS: struct {
         line: usize,
@@ -154,59 +154,59 @@ pub const Token = union(TokenType) {
     },
     ELSE: struct {
         line: usize,
-        lexeme: []u8 = "else",
+        lexeme: *const [4]u8 = "else",
     },
     FALSE: struct {
         line: usize,
-        lexeme: []u8 = "false",
+        lexeme: *const [5]u8 = "false",
     },
     FOR: struct {
         line: usize,
-        lexeme: []u8 = "for",
+        lexeme: *const [3]u8 = "for",
     },
     FUN: struct {
         line: usize,
-        lexeme: []u8 = "fun",
+        lexeme: *const [3]u8 = "fun",
     },
     IF: struct {
         line: usize,
-        lexeme: []u8 = "if",
+        lexeme: *const [2]u8 = "if",
     },
     NIL: struct {
         line: usize,
-        lexeme: []u8 = "nil",
+        lexeme: *const [3]u8 = "nil",
     },
     OR: struct {
         line: usize,
-        lexeme: []u8 = "or",
+        lexeme: *const [2]u8 = "or",
     },
     PRINT: struct {
         line: usize,
-        lexeme: []u8 = "print",
+        lexeme: *const [5]u8 = "print",
     },
     RETURN: struct {
         line: usize,
-        lexeme: []u8 = "return",
+        lexeme: *const [6]u8 = "return",
     },
     SUPER: struct {
         line: usize,
-        lexeme: []u8 = "super",
+        lexeme: *const [5]u8 = "super",
     },
     THIS: struct {
         line: usize,
-        lexeme: []u8 = "this",
+        lexeme: *const [4]u8 = "this",
     },
     TRUE: struct {
         line: usize,
-        lexeme: []u8 = "true",
+        lexeme: *const [4]u8 = "true",
     },
     VAR: struct {
         line: usize,
-        lexeme: []u8 = "var",
+        lexeme: *const [3]u8 = "var",
     },
     WHILE: struct {
         line: usize,
-        lexeme: []u8 = "while",
+        lexeme: *const [5]u8 = "while",
     },
 
     EOF: struct {
