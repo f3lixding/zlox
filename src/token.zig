@@ -218,6 +218,11 @@ pub const Token = union(TokenType) {
     // We need to get the ptr of the field of the inner struct because some variants of the union has an u8 for lexeme
     // For that reason, we would need to take the ptr of that field and create a fat ptr from it. And that ptr would
     // need to remain valid after we have left the scope of this function.
+    // You'll also notice that we deference it in the switch case. This is because inline else does _not_ work for ptr.
+    // Another thing worth noting is the fact that we capture the ptr of the inner_struct in the switch case arm.
+    // This is because if we capture its value, the references from the capture would exhibit the same problem (i.e.
+    // they won't be valid as soon as we leave the scope of the function).
+    // See [pass by value param](https://ziglang.org/documentation/master/#toc-Pass-by-value-Parameters) for more info.
     pub fn getLexeme(self: *Token) ?[]const u8 {
         switch (self.*) {
             inline else => |*inner_struct| {
