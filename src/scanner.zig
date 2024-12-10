@@ -4,6 +4,7 @@ const Token = @import("token.zig").Token;
 pub const ScanError = error{
     OutOfMemory,
     InvalidCharacter,
+    IncompleteString,
 };
 
 pub const Scanner = struct {
@@ -164,6 +165,23 @@ pub const Scanner = struct {
                     break :blk null;
                 }
             },
+            '"' => blk: {
+                var idx = self.current;
+                const end_quote_idx = while (idx < src_buf.len) {
+                    if (src_buf[idx] == '"') {
+                        break idx;
+                    }
+                    idx += 1;
+                } else default: {
+                    break :default null;
+                } orelse {
+                    self.current = idx;
+                    break :blk error.IncompleteString;
+                };
+                try self.addToken(Token{ .STRING = .{ .line = self.line, .lexeme = src_buf[self.current..end_quote_idx] } });
+                self.current = end_quote_idx + 1;
+                break :blk null;
+            },
             else => blk: {
                 break :blk error.InvalidCharacter;
             },
@@ -258,6 +276,31 @@ test "parse single character token" {
     while (iter.next()) |entry| {
         const count = entry.value_ptr.*;
         std.debug.assert(count == 3);
+    }
+}
+
+test "parse string token" {
+    const src =
+        \\ "short string"
+        \\ "this is a slightly longer string"
+    ;
+    var scanner = Scanner{
+        .alloc = std.testing.allocator,
+    };
+    const max_bytes = 10000;
+    try scanner.init(src, max_bytes);
+    defer scanner.deinit();
+
+    while (true) {
+        scanner.scanTokens() catch |err| {
+            std.debug.print("Failed to scan tokens: {}\n", .{err});
+        };
+        if (scanner.isEOF()) break;
+    }
+
+    for (scanner.tokens.items) |*token| {
+        const lexeme = token.getLexeme() orelse continue;
+        std.debug.assert(std.mem.eql(u8, lexeme, "short string") or std.mem.eql(u8, lexeme, "this is a slightly longer string"));
     }
 }
 
