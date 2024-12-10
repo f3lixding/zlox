@@ -214,15 +214,15 @@ pub const Token = union(TokenType) {
         line: usize,
     },
 
-    pub fn getLexeme(self: Token) ?[]const u8 {
-        switch (self) {
-            inline else => |inner_struct| {
-                if (@hasField(@TypeOf(inner_struct), "lexeme")) {
-                    const lexeme = @field(inner_struct, "lexeme");
-                    if (@TypeOf(lexeme) == u8) {
-                        return &[_]u8{lexeme};
+    pub fn getLexeme(self: *Token) ?[]const u8 {
+        switch (self.*) {
+            inline else => |*inner_struct| {
+                if (@hasField(@TypeOf(inner_struct.*), "lexeme")) {
+                    const lexeme = &inner_struct.lexeme;
+                    if (@TypeOf(lexeme.*) == u8) {
+                        return @as(*const [1]u8, lexeme)[0..1];
                     } else {
-                        return lexeme;
+                        return lexeme.*;
                     }
                 } else {
                     return null;
@@ -233,6 +233,8 @@ pub const Token = union(TokenType) {
 };
 
 test "test get lexeme" {
-    const token = Token{ .IDENTIFIER = .{ .line = 0, .lexeme = "hello" } };
+    var token = Token{ .IDENTIFIER = .{ .line = 0, .lexeme = "hello" } };
     try std.testing.expectEqualStrings("hello", token.getLexeme().?);
+    var token2 = Token{ .EQUAL = .{ .line = 0 } };
+    try std.testing.expectEqualStrings("=", token2.getLexeme().?);
 }

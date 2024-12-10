@@ -46,6 +46,7 @@ pub const Scanner = struct {
 
         // Single character tokens
         scan_res = switch (cur_char) {
+            ' ',
             '\n',
             '\r',
             '\t',
@@ -244,9 +245,19 @@ test "parse single character token" {
 
     var res_map = std.StringHashMap(i32).init(std.testing.allocator);
     defer res_map.deinit();
-    for (scanner.tokens.items) |token| {
+    for (scanner.tokens.items) |*token| {
         const lexeme = token.getLexeme() orelse continue;
-        _ = lexeme;
+        const entry = try res_map.getOrPut(lexeme);
+        if (entry.found_existing) {
+            entry.value_ptr.* += 1;
+        } else {
+            entry.value_ptr.* = 1;
+        }
+    }
+    var iter = res_map.iterator();
+    while (iter.next()) |entry| {
+        const count = entry.value_ptr.*;
+        std.debug.assert(count == 3);
     }
 }
 
