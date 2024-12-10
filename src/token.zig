@@ -214,6 +214,10 @@ pub const Token = union(TokenType) {
         line: usize,
     },
 
+    // This needs to take *Token because otherwise you cannot get a valid ptr to the fields of inner struct
+    // We need to get the ptr of the field of the inner struct because some variants of the union has an u8 for lexeme
+    // For that reason, we would need to take the ptr of that field and create a fat ptr from it. And that ptr would
+    // need to remain valid after we have left the scope of this function.
     pub fn getLexeme(self: *Token) ?[]const u8 {
         switch (self.*) {
             inline else => |*inner_struct| {
