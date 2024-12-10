@@ -41,14 +41,20 @@ pub const Scanner = struct {
         const src_buf = self.src_buf.?;
         const cur_char = src_buf[self.current];
         self.current += 1;
-        if (cur_char == '\n' or cur_char == ' ') {
-            return;
-        }
 
         var scan_res: ?ScanError = null;
 
         // Single character tokens
         scan_res = switch (cur_char) {
+            '\n',
+            '\r',
+            '\t',
+            => blk: {
+                if (cur_char == '\n') {
+                    self.line += 1;
+                }
+                break :blk null;
+            },
             '(' => blk: {
                 try self.addToken(Token{ .LEFT_PAREN = .{ .line = self.line } });
                 break :blk null;
@@ -220,6 +226,7 @@ test "parse single character token" {
     const src =
         \\+ + +
         \\ - - -
+        \\!= != !=
     ;
     var scanner = Scanner{
         .alloc = std.testing.allocator,
@@ -235,8 +242,12 @@ test "parse single character token" {
         if (scanner.isEOF()) break;
     }
 
-    std.debug.print("Tokens: {any}\n", .{scanner.tokens.items});
-    std.debug.print("Tokens count: {}\n", .{scanner.tokens.items.len});
+    var res_map = std.StringHashMap(i32).init(std.testing.allocator);
+    defer res_map.deinit();
+    for (scanner.tokens.items) |token| {
+        const lexeme = token.getLexeme() orelse continue;
+        _ = lexeme;
+    }
 }
 
 test "parse multi character token" {}
