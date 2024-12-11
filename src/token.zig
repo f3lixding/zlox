@@ -151,7 +151,7 @@ pub const Token = union(TokenType) {
     },
     CLASS: struct {
         line: usize,
-        lexeme: []u8,
+        lexeme: *const [5]u8 = "class",
     },
     ELSE: struct {
         line: usize,

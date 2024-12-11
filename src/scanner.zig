@@ -181,17 +181,16 @@ pub const Scanner = struct {
                 self.current = end_quote_idx + 1;
                 break :blk null;
             },
-            // TODO: 
+            // TODO:
             // - add support for negative nubmers
             '0'...'9' => blk: {
                 // We'll need to start at the start index.
                 // Keep in mind that we had already advanced current.
                 var idx = start_idx;
                 const end_idx = while (idx < src_buf.len) {
-                    if (
-                        ((src_buf[idx] < '0' or src_buf[idx] > '9') and src_buf[idx] != '.') or 
-                        (src_buf[idx] == '.' and idx < src_buf.len - 1 and src_buf[idx + 1] < '0' and src_buf[idx + 1] > '9')
-                     ) {
+                    if (((src_buf[idx] < '0' or src_buf[idx] > '9') and src_buf[idx] != '.') or
+                        (src_buf[idx] == '.' and idx < src_buf.len - 1 and src_buf[idx + 1] < '0' and src_buf[idx + 1] > '9'))
+                    {
                         break idx;
                     }
                     idx += 1;
@@ -214,20 +213,43 @@ pub const Scanner = struct {
             return scan_res.?;
         }
 
-        // Literals
-        const var_name = self.getNextContiguousBuffer();
-        if (self.tokens.getLast() == .VAR) {
-            // This is an identifier
-            // TODO: check if there has been any errors since the var token
-            try self.addToken(Token{ .IDENTIFIER = .{ .line = self.line, .lexeme = var_name } });
-            self.current = self.current + var_name.len;
+        // Identifiers, if not then keywords
+        scan_res = switch (cur_char) {
+            'a'...'z', 'A'...'Z', '_' => blk: {
+                var idx = start_idx;
+                const end_idx = while (idx < src_buf.len) {
+                    if ((src_buf[idx] < 'a' or src_buf[idx] > 'z') and
+                        (src_buf[idx] < 'A' or src_buf[idx] > 'Z') and
+                        (src_buf[idx] < '0' or src_buf[idx] > '9') and
+                        src_buf[idx] != '_')
+                    {
+                        break idx;
+                    }
+                    idx += 1;
+                } else default: {
+                    break :default src_buf.len;
+                };
+                const var_name = src_buf[start_idx..end_idx];
+                const potential_keyword_token = getPotentialKeywordToken(var_name, self.line);
+                if (potential_keyword_token) |token| {
+                    try self.addToken(token);
+                    self.current = end_idx;
+                    break :blk null;
+                } 
+                try self.addToken(Token{ .IDENTIFIER = .{ .line = self.line, .lexeme = var_name } });
+                self.current = end_idx;
+                break :blk null;
+            },
+            else => blk: {
+                break :blk error.InvalidCharacter;
+            },
+        };
+
+        if (scan_res == null) {
             return;
-        } else if (self.isVarNameSeen(var_name)) {
-            try self.addToken(Token{ .IDENTIFIER = .{ .line = self.line, .lexeme = var_name } });
-            self.current = self.current + var_name.len;
-            return;
+        } else if (scan_res.? != error.InvalidCharacter) {
+            return scan_res.?;
         }
-        // Multi character tokens
 
         if (scan_res) |err| {
             return err;
@@ -261,6 +283,44 @@ pub const Scanner = struct {
         return self.tokens.append(token);
     }
 };
+
+fn getPotentialKeywordToken(lexeme: []const u8, line: usize) ?Token {
+    if (std.mem.eql(u8, lexeme, "and")) {
+        return Token{ .AND = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "class")) {
+        return Token{ .CLASS = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "else")) {
+        return Token{ .ELSE = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "false")) {
+        return Token{ .FALSE = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "for")) {
+        return Token{ .FOR = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "fun")) {
+        return Token{ .FUN = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "if")) {
+        return Token{ .IF = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "nil")) {
+        return Token{ .NIL = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "or")) {
+        return Token{ .OR = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "print")) {
+        return Token{ .PRINT = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "return")) {
+        return Token{ .RETURN = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "super")) {
+        return Token{ .SUPER = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "this")) {
+        return Token{ .THIS = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "true")) {
+        return Token{ .TRUE = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "var")) {
+        return Token{ .VAR = .{ .line = line } };
+    } else if (std.mem.eql(u8, lexeme, "while")) {
+        return Token{ .WHILE = .{ .line = line } };
+    }
+
+    return null;
+}
 
 test "parse single character token" {
     const src =
@@ -349,12 +409,43 @@ test "parse number token" {
     for (scanner.tokens.items) |*token| {
         std.debug.assert(token.* == .NUMBER);
         const lexeme = token.getLexeme() orelse continue;
-        std.debug.assert(
-            std.mem.eql(u8, lexeme, "1") or 
-            std.mem.eql(u8, lexeme, "1234") or 
-            std.mem.eql(u8, lexeme, "0.123") or 
-            std.mem.eql(u8, lexeme, "123.345")
-        );
+        std.debug.assert(std.mem.eql(u8, lexeme, "1") or
+            std.mem.eql(u8, lexeme, "1234") or
+            std.mem.eql(u8, lexeme, "0.123") or
+            std.mem.eql(u8, lexeme, "123.345"));
+    }
+}
+
+test "keywords and identifiers" {
+    const src =
+        \\ and class else
+        \\ false nyaaa
+    ;
+    var scanner = Scanner{
+        .alloc = std.testing.allocator,
+    };
+    const max_bytes = 10000;
+    try scanner.init(src, max_bytes);
+    defer scanner.deinit();
+
+    while (true) {
+        scanner.scanTokens() catch |err| {
+            std.debug.print("Failed to scan tokens: {}\n", .{err});
+        };
+        if (scanner.isEOF()) break;
+    }
+
+    for (scanner.tokens.items) |*token| {
+        const lexeme = token.getLexeme() orelse continue;
+        std.debug.assert(std.mem.eql(u8, lexeme, "and") or
+            std.mem.eql(u8, lexeme, "class") or
+            std.mem.eql(u8, lexeme, "else") or
+            std.mem.eql(u8, lexeme, "false") or
+            std.mem.eql(u8, lexeme, "nyaaa"));
+
+        if (std.mem.eql(u8, lexeme, "nyaaa")) {
+            std.debug.assert(token.* == .IDENTIFIER);
+        }
     }
 }
 
