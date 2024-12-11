@@ -38,7 +38,6 @@ pub const Scanner = struct {
 
     pub fn scanTokens(self: *Scanner) !void {
         const start_idx = self.current;
-        _ = start_idx;
         const src_buf = self.src_buf.?;
         const cur_char = src_buf[self.current];
         self.current += 1;
@@ -182,6 +181,28 @@ pub const Scanner = struct {
                 self.current = end_quote_idx + 1;
                 break :blk null;
             },
+            // TODO: 
+            // - add support for negative nubmers
+            '0'...'9' => blk: {
+                // We'll need to start at the start index.
+                // Keep in mind that we had already advanced current.
+                var idx = start_idx;
+                const end_idx = while (idx < src_buf.len) {
+                    if (
+                        ((src_buf[idx] < '0' or src_buf[idx] > '9') and src_buf[idx] != '.') or 
+                        (src_buf[idx] == '.' and idx < src_buf.len - 1 and src_buf[idx + 1] < '0' and src_buf[idx + 1] > '9')
+                     ) {
+                        break idx;
+                    }
+                    idx += 1;
+                } else default: {
+                    break :default src_buf.len;
+                };
+                const num_str = src_buf[start_idx..end_idx];
+                try self.addToken(Token{ .NUMBER = .{ .line = self.line, .lexeme = num_str } });
+                self.current = end_idx;
+                break :blk null;
+            },
             else => blk: {
                 break :blk error.InvalidCharacter;
             },
@@ -299,8 +320,41 @@ test "parse string token" {
     }
 
     for (scanner.tokens.items) |*token| {
+        std.debug.assert(token.* == .STRING);
         const lexeme = token.getLexeme() orelse continue;
         std.debug.assert(std.mem.eql(u8, lexeme, "short string") or std.mem.eql(u8, lexeme, "this is a slightly longer string"));
+    }
+}
+
+test "parse number token" {
+    const src =
+        \\ 1
+        \\ 1234
+        \\ 0.123
+        \\ 123.345
+    ;
+    var scanner = Scanner{
+        .alloc = std.testing.allocator,
+    };
+    const max_bytes = 10000;
+    try scanner.init(src, max_bytes);
+    defer scanner.deinit();
+
+    while (true) {
+        scanner.scanTokens() catch |err| {
+            std.debug.print("Failed to scan tokens: {}\n", .{err});
+        };
+        if (scanner.isEOF()) break;
+    }
+    for (scanner.tokens.items) |*token| {
+        std.debug.assert(token.* == .NUMBER);
+        const lexeme = token.getLexeme() orelse continue;
+        std.debug.assert(
+            std.mem.eql(u8, lexeme, "1") or 
+            std.mem.eql(u8, lexeme, "1234") or 
+            std.mem.eql(u8, lexeme, "0.123") or 
+            std.mem.eql(u8, lexeme, "123.345")
+        );
     }
 }
 

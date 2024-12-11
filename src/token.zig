@@ -141,7 +141,7 @@ pub const Token = union(TokenType) {
     },
     NUMBER: struct {
         line: usize,
-        lexeme: u8,
+        lexeme: []const u8,
     },
 
     // Keywords:
