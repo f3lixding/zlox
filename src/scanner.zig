@@ -235,10 +235,11 @@ pub const Scanner = struct {
                     try self.addToken(token);
                     self.current = end_idx;
                     break :blk null;
-                } 
-                try self.addToken(Token{ .IDENTIFIER = .{ .line = self.line, .lexeme = var_name } });
-                self.current = end_idx;
-                break :blk null;
+                } else {
+                    try self.addToken(Token{ .IDENTIFIER = .{ .line = self.line, .lexeme = var_name } });
+                    self.current = end_idx;
+                    break :blk null;
+                }
             },
             else => blk: {
                 break :blk error.InvalidCharacter;
