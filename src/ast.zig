@@ -13,9 +13,9 @@ pub const Grouping = struct {
     expr: *Expr,
 };
 
-pub const Unary = struct {
-    expr: *Expr,
-    operator: Operator,
+pub const Unary = union(enum) {
+    NEGATIVE: *Expr,
+    NOT: *Expr,
 };
 
 pub const Binary = struct {
