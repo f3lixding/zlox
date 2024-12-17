@@ -1,10 +1,10 @@
 const std = @import("std");
 
 pub const Expr = union(enum) {
-    LITERAL,
-    UNARY,
-    BINARY,
-    GROUPING,
+    LITERAL: Literal,
+    UNARY: Unary,
+    BINARY: Binary,
+    GROUPING: Grouping,
 };
 
 pub const Literal = union(enum) { NUMBER: f64, STRING: []const u8, TRUE: "true", FALSE: "false", NIL: "nil" };
