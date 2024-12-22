@@ -7,11 +7,15 @@ pub const Expr = union(enum) {
     BINARY: Binary,
     GROUPING: Grouping,
 
-    pub fn deinit(self: *Expr) void {
+    pub fn deinit(self: *Expr, alloc: std.mem.Allocator) void {
         switch (self.*) {
             inline else => |*inner_struct| {
                 std.debug.assert(@hasDecl(@TypeOf(inner_struct.*), "deinit"));
-                inner_struct.deinit();
+                inner_struct.deinit(alloc);
+                // We would have have this in the Expr level (and not in the inner struct level).
+                // This is because the range of addresses for an Expr already includes the inner struct.
+                // But we'll still need to pass in the allocator in the deinit because Expr is recursive.
+                alloc.destroy(self);
             },
         }
     }
@@ -86,16 +90,17 @@ pub const Literal = union(enum) {
     // If we change our mind in the future about this we will change this.
     // Because all other Expr delegates the deinit to its inner struct,
     // and it bottoms out at Literal, effectively we don't do anything for deinit.
-    pub fn deinit(self: *Literal) void {
+    pub fn deinit(self: *Literal, alloc: std.mem.Allocator) void {
         _ = self;
+        _ = alloc;
     }
 };
 
 pub const Grouping = struct {
     expr: *Expr,
 
-    pub fn deinit(self: *Grouping) void {
-        self.expr.deinit();
+    pub fn deinit(self: *Grouping, alloc: std.mem.Allocator) void {
+        self.expr.deinit(alloc);
     }
 };
 
@@ -103,11 +108,11 @@ pub const Unary = union(enum) {
     NEGATIVE: *Expr,
     NOT: *Expr,
 
-    pub fn deinit(self: *Unary) void {
+    pub fn deinit(self: *Unary, alloc: std.mem.Allocator) void {
         switch (self.*) {
             inline else => |*inner_struct| {
                 std.debug.assert(@hasDecl(@TypeOf(inner_struct.*.*), "deinit"));
-                inner_struct.*.deinit();
+                inner_struct.*.deinit(alloc);
             },
         }
     }
@@ -118,9 +123,9 @@ pub const Binary = struct {
     operator: Operator,
     right: *Expr,
 
-    pub fn deinit(self: *Binary) void {
-        self.left.deinit();
-        self.right.deinit();
+    pub fn deinit(self: *Binary, alloc: std.mem.Allocator) void {
+        self.left.deinit(alloc);
+        self.right.deinit(alloc);
     }
 };
 
@@ -193,9 +198,14 @@ test "pretty print test" {
 }
 
 test "deinit" {
+    const alloc = std.testing.allocator;
     const literal_true = Literal{ .TRUE = {} };
-    var literal_true_expr = Expr{ .LITERAL = literal_true };
-    const unary_not_true = Unary{ .NOT = &literal_true_expr };
-    var expr_unary = Expr{ .UNARY = unary_not_true };
-    expr_unary.deinit();
+    // We need to heap allocate this to simulate the actual routine during expr creation
+    const literal_true_expr = alloc.create(Expr) catch unreachable;
+    literal_true_expr.* = Expr{ .LITERAL = literal_true };
+    const unary_not_true = Unary{ .NOT = literal_true_expr };
+    const expr_unary = alloc.create(Expr) catch unreachable;
+    expr_unary.* = Expr{ .UNARY = unary_not_true };
+    // This should not error out
+    expr_unary.deinit(alloc);
 }
