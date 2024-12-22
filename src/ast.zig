@@ -1,10 +1,20 @@
 const std = @import("std");
+const Token = @import("token.zig").Token;
 
 pub const Expr = union(enum) {
     LITERAL: Literal,
     UNARY: Unary,
     BINARY: Binary,
     GROUPING: Grouping,
+
+    pub fn deinit(self: *Expr) void {
+        switch (self.*) {
+            inline else => |*inner_struct| {
+                std.debug.assert(@hasDecl(@TypeOf(inner_struct.*), "deinit"));
+                inner_struct.deinit();
+            },
+        }
+    }
 
     pub fn getPrintableRepr(self: Expr, alloc: std.mem.Allocator) ![]const u8 {
         return switch (self) {
@@ -65,21 +75,53 @@ pub const Expr = union(enum) {
     }
 };
 
-pub const Literal = union(enum) { NUMBER: f64, STRING: []const u8, TRUE, FALSE, NIL };
+pub const Literal = union(enum) {
+    NUMBER: f64,
+    STRING: []const u8,
+    TRUE,
+    FALSE,
+    NIL,
+
+    // Noop. The string is not to be owned by the parser.
+    // If we change our mind in the future about this we will change this.
+    // Because all other Expr delegates the deinit to its inner struct,
+    // and it bottoms out at Literal, effectively we don't do anything for deinit.
+    pub fn deinit(self: *Literal) void {
+        _ = self;
+    }
+};
 
 pub const Grouping = struct {
     expr: *Expr,
+
+    pub fn deinit(self: *Grouping) void {
+        self.expr.deinit();
+    }
 };
 
 pub const Unary = union(enum) {
     NEGATIVE: *Expr,
     NOT: *Expr,
+
+    pub fn deinit(self: *Unary) void {
+        switch (self.*) {
+            inline else => |*inner_struct| {
+                std.debug.assert(@hasDecl(@TypeOf(inner_struct.*.*), "deinit"));
+                inner_struct.*.deinit();
+            },
+        }
+    }
 };
 
 pub const Binary = struct {
     left: *Expr,
     operator: Operator,
     right: *Expr,
+
+    pub fn deinit(self: *Binary) void {
+        self.left.deinit();
+        self.right.deinit();
+    }
 };
 
 pub const Operator = union(enum) {
@@ -94,6 +136,23 @@ pub const Operator = union(enum) {
     SLASH,
     STAR,
     COMMA,
+
+    pub fn fromToken(token: Token) !Operator {
+        return switch (token) {
+            .EQUAL_EQUAL => Operator.DOUBLE_EQUAL,
+            .BANG_EQUAL => Operator.BANG_EQUAL,
+            .GREATER => Operator.GREATER,
+            .GREATER_EQUAL => Operator.GREATER_EQUAL,
+            .LESS => Operator.LESS,
+            .LESS_EQUAL => Operator.LESS_EQUAL,
+            .MINUS => Operator.MINUS,
+            .PLUS => Operator.PLUS,
+            .SLASH => Operator.SLASH,
+            .STAR => Operator.STAR,
+            .COMMA => Operator.COMMA,
+            else => unreachable,
+        };
+    }
 };
 
 test "pretty print test" {
@@ -131,4 +190,12 @@ test "pretty print test" {
     const print_from_expr_grouping = try expr_grouping_5.getPrintableRepr(std.testing.allocator);
     defer std.testing.allocator.free(print_from_expr_grouping);
     std.debug.assert(std.mem.eql(u8, print_from_expr_grouping, "(3 * ((3 + 4)))"));
+}
+
+test "deinit" {
+    const literal_true = Literal{ .TRUE = {} };
+    var literal_true_expr = Expr{ .LITERAL = literal_true };
+    const unary_not_true = Unary{ .NOT = &literal_true_expr };
+    var expr_unary = Expr{ .UNARY = unary_not_true };
+    expr_unary.deinit();
 }
