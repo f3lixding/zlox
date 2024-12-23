@@ -49,6 +49,9 @@ pub const TokenType = enum {
     EOF,
 };
 
+// Most of these have an u8 array allocated statically
+// The ones that are slices to be assigned at runtime would be referencing it from the source code being scanned
+// This means the parser would not need to free the u8 array
 pub const Token = union(TokenType) {
     // Single character tokens:
     LEFT_PAREN: struct {
