@@ -7,7 +7,7 @@ pub const Expr = union(enum) {
     BINARY: Binary,
     GROUPING: Grouping,
 
-    pub fn deinit(self: *Expr, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *const Expr, alloc: std.mem.Allocator) void {
         switch (self.*) {
             inline else => |*inner_struct| {
                 std.debug.assert(@hasDecl(@TypeOf(inner_struct.*), "deinit"));
@@ -90,7 +90,7 @@ pub const Literal = union(enum) {
     // If we change our mind in the future about this we will change this.
     // Because all other Expr delegates the deinit to its inner struct,
     // and it bottoms out at Literal, effectively we don't do anything for deinit.
-    pub fn deinit(self: *Literal, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *const Literal, alloc: std.mem.Allocator) void {
         _ = self;
         _ = alloc;
     }
@@ -99,7 +99,7 @@ pub const Literal = union(enum) {
 pub const Grouping = struct {
     expr: *Expr,
 
-    pub fn deinit(self: *Grouping, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *const Grouping, alloc: std.mem.Allocator) void {
         self.expr.deinit(alloc);
     }
 };
@@ -108,7 +108,7 @@ pub const Unary = union(enum) {
     NEGATIVE: *Expr,
     NOT: *Expr,
 
-    pub fn deinit(self: *Unary, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *const Unary, alloc: std.mem.Allocator) void {
         switch (self.*) {
             inline else => |*inner_struct| {
                 std.debug.assert(@hasDecl(@TypeOf(inner_struct.*.*), "deinit"));
@@ -123,7 +123,7 @@ pub const Binary = struct {
     operator: Operator,
     right: *Expr,
 
-    pub fn deinit(self: *Binary, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *const Binary, alloc: std.mem.Allocator) void {
         self.left.deinit(alloc);
         self.right.deinit(alloc);
     }
