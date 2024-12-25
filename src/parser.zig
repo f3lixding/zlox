@@ -21,6 +21,19 @@ const ParsingError = error{
 //                | primary ;
 // primary        → NUMBER | STRING | "true" | "false" | "nil"
 //                | "(" expression ")" ;
+//
+// Some things to note here:
+// - This parser has left associativity. This means that in a series of the same operator,
+// the order of evaluation is from left to right.
+// - This construction of AST done with this parser is done in a "top down" manner.
+// - With the evaluation of each rule, it would first assume whatever it comes across next
+// in line in the stream of tokens as the left part of BINARY expr, with the exception
+// of the evaluation of unary rule. If it turns out that the token is, in fact, not a part of
+// a BINARY expr, it will just return the left expr as is.
+// - The nested components of said BINARY expr is to be evaluated with the rule that is one
+// level higher in terms of precedence. This is because while the construction is done top
+// down, the evaluation is done bottom up ("children" in the tree has higher precendence).
+// - User buffer specific data ARE copied here and would be owned by the AST.
 pub const Parser = struct {
     tokens: std.ArrayList(Token),
     cur_idx: usize = 0,
