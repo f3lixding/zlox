@@ -174,6 +174,31 @@ pub const Parser = struct {
         }
         return null;
     }
+
+    // At the time of writing, we're at chapter 6.
+    // This function will remain incomplete until the latter half of the book.
+    // TODO: finish implementing this function.
+    fn synchronize(self: *Parser) void {
+        // Start by advancing because we wouldn't call this function unless we have run into an error.
+        // This means the token pointed to by cur_idx is for sure part of the error.
+        self.cur_idx += 1;
+        while (self.cur_idx < self.tokens.items.len) : (self.cur_idx += 1) {
+            const last_token = &self.tokens.items[self.cur_idx - 1];
+            if (std.meta.activeTag(last_token.*) == .SEMICOLON) {
+                return;
+            }
+            switch (self.tokens.items[self.cur_idx]) {
+                .CLASS => |_| {},
+                .FUN => |_| {},
+                .VAR => |_| {},
+                .FOR => |_| {},
+                .IF => |_| {},
+                .WHILE => |_| {},
+                .PRINT => |_| {},
+                .RETURN => |_| {},
+            }
+        }
+    }
 };
 
 test "match" {
