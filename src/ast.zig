@@ -7,6 +7,9 @@ pub const Expr = union(enum) {
     BINARY: Binary,
     GROUPING: Grouping,
 
+    // This might not be the most idiomatic way of writing deinit (most of the deinit I see do not require args)
+    // Also we have a deinit routine without an init routine.
+    // TODO: make this more idiomatic
     pub fn deinit(self: *const Expr, alloc: std.mem.Allocator) void {
         switch (self.*) {
             inline else => |*inner_struct| {
