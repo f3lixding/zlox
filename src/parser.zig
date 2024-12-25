@@ -71,7 +71,7 @@ pub const Parser = struct {
         var left = try self.factor();
         const match_input = [_]TokenType{ .MINUS, .PLUS };
         while (self.match(&match_input)) |op| {
-            const right = try self.term();
+            const right = try self.factor();
             const operator = try Operator.fromToken(op.*);
             const new_left = try self.alloc.create(Expr);
             new_left.* = Expr{ .BINARY = .{ .left = left, .operator = operator, .right = right } };
@@ -149,6 +149,9 @@ pub const Parser = struct {
     // Helper function to match expected tokens and to advance cur_idx
     // i.e. consuming the token
     fn match(self: *Parser, to_match: []const TokenType) ?*Token {
+        if (self.cur_idx >= self.tokens.items.len) {
+            return null;
+        }
         const cur_token = &self.tokens.items[self.cur_idx];
         for (to_match) |token_type| {
             if (std.meta.activeTag(cur_token.*) == token_type) {
@@ -156,12 +159,6 @@ pub const Parser = struct {
                 return cur_token;
             }
         }
-        return null;
-    }
-
-    // Helper function return the token before the one pointed to by cur_idx
-    fn previous(self: Parser) ?*Token {
-        _ = self;
         return null;
     }
 };
@@ -197,5 +194,48 @@ test "primary" {
     defer parser.deinit();
     const res = parser.primary() catch unreachable;
     defer res.deinit(parser.alloc);
-    std.debug.print("{any}\n", .{res.*});
+    std.debug.assert(std.meta.activeTag(res.*) == .GROUPING);
+    std.debug.assert(std.meta.activeTag(res.GROUPING.expr.LITERAL) == .FALSE);
+}
+
+test "overall parsing" {
+    // Testing overall parsing logic
+    const alloc = std.testing.allocator;
+    const tokens = std.ArrayList(Token).init(alloc);
+    defer tokens.deinit();
+    var parser = Parser{
+        .alloc = alloc,
+        .tokens = tokens,
+    };
+    // A bunch of test tokens here to test every rule
+    const test_tokens = [_]Token{
+        Token{ .NUMBER = .{ .line = 0, .lexeme = "6.4" } },
+        Token{ .SLASH = .{ .line = 0 } },
+        Token{ .NUMBER = .{ .line = 0, .lexeme = "2.1" } },
+        Token{ .MINUS = .{ .line = 0 } },
+        Token{ .NUMBER = .{ .line = 0, .lexeme = "3.0" } },
+    };
+    parser.tokens.appendSlice(&test_tokens) catch unreachable;
+    defer parser.deinit();
+    const res = parser.getAST() catch unreachable;
+    defer res.deinit(parser.alloc);
+    std.debug.assert(std.meta.activeTag(res.*) == .BINARY);
+    const main_op = &res.BINARY.operator;
+    std.debug.assert(std.meta.activeTag(main_op.*) == .MINUS);
+    const left = res.BINARY.left;
+    std.debug.assert(std.meta.activeTag(left.*) == .BINARY);
+    const left_left = left.BINARY.left;
+    std.debug.assert(std.meta.activeTag(left_left.*) == .LITERAL);
+    std.debug.assert(std.meta.activeTag(left_left.LITERAL) == .NUMBER);
+    std.debug.assert(left_left.LITERAL.NUMBER == 6.4);
+    const left_right = left.BINARY.right;
+    std.debug.assert(std.meta.activeTag(left_right.*) == .LITERAL);
+    std.debug.assert(std.meta.activeTag(left_right.LITERAL) == .NUMBER);
+    std.debug.assert(left_right.LITERAL.NUMBER == 2.1);
+    const left_left_op = &res.BINARY.left.BINARY.operator;
+    std.debug.assert(std.meta.activeTag(left_left_op.*) == .SLASH);
+    const right = res.BINARY.right;
+    std.debug.assert(std.meta.activeTag(right.*) == .LITERAL);
+    std.debug.assert(std.meta.activeTag(right.LITERAL) == .NUMBER);
+    std.debug.assert(right.LITERAL.NUMBER == 3.0);
 }
