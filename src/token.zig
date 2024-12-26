@@ -12,6 +12,7 @@ pub const TokenType = enum {
     SEMICOLON,
     SLASH,
     STAR,
+    QUESTION_MARK,
 
     // One or two character tokens:
     BANG,
@@ -97,6 +98,10 @@ pub const Token = union(TokenType) {
     STAR: struct {
         line: usize,
         lexeme: u8 = '*',
+    },
+    QUESTION_MARK: struct {
+        line: usize,
+        lexeme: u8 = '?',
     },
 
     // One or two character tokens:

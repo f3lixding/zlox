@@ -12,7 +12,10 @@ const ParsingError = error{
 // Parsers is like scanner but for parsing (scanner is for lexing)
 // Parser takes a list of tokens and produces ast
 // The composition of the functions is the embodiment of the the following grammar:
-// expression     → equality ;
+//
+// Or, with the addition of ternary:
+// expression     → ternary ;
+// ternary        → equality ( "?" equality ":" equality )? ;
 // equality       → comparison ( ( "!=" | "==" ) comparison )* ;
 // comparison     → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
 // term           → factor ( ( "-" | "+" ) factor )* ;
@@ -50,7 +53,31 @@ pub const Parser = struct {
     }
 
     fn expression(self: *Parser) !*Expr {
-        const expr = try self.equality();
+        const expr = try self.ternary();
+        return expr;
+    }
+
+    fn ternary(self: *Parser) !*Expr {
+        var expr = try self.equality();
+        errdefer expr.deinit(self.alloc);
+        if (self.match(&[_]TokenType{.QUESTION_MARK})) |_| {
+            const positive_expr = try self.equality();
+            errdefer positive_expr.deinit(self.alloc);
+            if (self.match(&[_]TokenType{.SEMICOLON})) |_| {
+                const negative_expr = try self.equality();
+                errdefer negative_expr.deinit(self.alloc);
+                const complete_ternary_expr = try self.alloc.create(Expr);
+                errdefer self.alloc.destroy(complete_ternary_expr);
+                complete_ternary_expr.* = Expr{ .TERNARY = .{
+                    .cond = expr,
+                    .pos = positive_expr,
+                    .neg = negative_expr,
+                } };
+                return complete_ternary_expr;
+            } else {
+                return error.MalformedBuffer;
+            }
+        }
         return expr;
     }
 
@@ -61,7 +88,11 @@ pub const Parser = struct {
             const right = try self.comparison();
             const operator = try Operator.fromToken(op.*);
             const new_left = try self.alloc.create(Expr);
-            new_left.* = Expr{ .BINARY = .{ .left = left, .operator = operator, .right = right } };
+            new_left.* = Expr{ .BINARY = .{
+                .left = left,
+                .operator = operator,
+                .right = right,
+            } };
             left = new_left;
         }
         return left;
@@ -74,7 +105,11 @@ pub const Parser = struct {
             const right = try self.term();
             const operator = try Operator.fromToken(op.*);
             const new_left = try self.alloc.create(Expr);
-            new_left.* = Expr{ .BINARY = .{ .left = left, .operator = operator, .right = right } };
+            new_left.* = Expr{ .BINARY = .{
+                .left = left,
+                .operator = operator,
+                .right = right,
+            } };
             left = new_left;
         }
         return left;
@@ -87,7 +122,11 @@ pub const Parser = struct {
             const right = try self.factor();
             const operator = try Operator.fromToken(op.*);
             const new_left = try self.alloc.create(Expr);
-            new_left.* = Expr{ .BINARY = .{ .left = left, .operator = operator, .right = right } };
+            new_left.* = Expr{ .BINARY = .{
+                .left = left,
+                .operator = operator,
+                .right = right,
+            } };
             left = new_left;
         }
         return left;
@@ -100,7 +139,11 @@ pub const Parser = struct {
             const right = try self.unary();
             const operator = try Operator.fromToken(op.*);
             const new_left = try self.alloc.create(Expr);
-            new_left.* = Expr{ .BINARY = .{ .left = left, .operator = operator, .right = right } };
+            new_left.* = Expr{ .BINARY = .{
+                .left = left,
+                .operator = operator,
+                .right = right,
+            } };
             left = new_left;
         }
         return left;
@@ -126,6 +169,7 @@ pub const Parser = struct {
         return self.primary();
     }
 
+    // TODO: enable parsing of identifier
     fn primary(self: *Parser) ParsingError!*Expr {
         const res = try self.alloc.create(Expr);
         errdefer self.alloc.destroy(res);
@@ -236,7 +280,7 @@ test "primary" {
     std.debug.assert(std.meta.activeTag(res.GROUPING.expr.LITERAL) == .FALSE);
 }
 
-test "overall parsing" {
+test "overall parsing one" {
     // Testing overall parsing logic
     const alloc = std.testing.allocator;
     const tokens = std.ArrayList(Token).init(alloc);
@@ -276,4 +320,28 @@ test "overall parsing" {
     std.debug.assert(std.meta.activeTag(right.*) == .LITERAL);
     std.debug.assert(std.meta.activeTag(right.LITERAL) == .NUMBER);
     std.debug.assert(right.LITERAL.NUMBER == 3.0);
+}
+
+test "overall parsing two" {
+    const alloc = std.testing.allocator;
+    const tokens = std.ArrayList(Token).init(alloc);
+    defer tokens.deinit();
+    var parser = Parser{
+        .alloc = alloc,
+        .tokens = tokens,
+    };
+    const test_tokens = [_]Token{
+        Token{ .NUMBER = .{ .line = 0, .lexeme = "100" } },
+        Token{ .EQUAL_EQUAL = .{ .line = 0 } },
+        Token{ .NUMBER = .{ .line = 0, .lexeme = "100" } },
+        Token{ .QUESTION_MARK = .{ .line = 0 } },
+        Token{ .NUMBER = .{ .line = 0, .lexeme = "1.1" } },
+        Token{ .SEMICOLON = .{ .line = 0 } },
+        Token{ .NUMBER = .{ .line = 0, .lexeme = "2.2" } },
+    };
+    parser.tokens.appendSlice(&test_tokens) catch unreachable;
+    defer parser.deinit();
+    const res = parser.getAST() catch unreachable;
+    defer res.deinit(parser.alloc);
+    std.debug.print("{any}\n", .{res.*});
 }

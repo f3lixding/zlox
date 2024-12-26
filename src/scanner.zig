@@ -96,6 +96,10 @@ pub const Scanner = struct {
                 try self.addToken(Token{ .STAR = .{ .line = self.line } });
                 break :blk null;
             },
+            '?' => blk: {
+                try self.addToken(Token{ .QUESTION_MARK = .{ .line = self.line } });
+                break :blk null;
+            },
             else => blk: {
                 break :blk error.InvalidCharacter;
             },

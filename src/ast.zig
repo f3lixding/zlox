@@ -6,6 +6,7 @@ pub const Expr = union(enum) {
     UNARY: Unary,
     BINARY: Binary,
     GROUPING: Grouping,
+    TERNARY: Ternary,
 
     // This might not be the most idiomatic way of writing deinit (most of the deinit I see do not require args)
     // Also we have a deinit routine without an init routine.
@@ -72,6 +73,15 @@ pub const Expr = union(enum) {
                 defer alloc.free(child);
                 return try std.fmt.allocPrint(alloc, "({s})", .{child});
             },
+            .TERNARY => |ternary| {
+                const pos_output = try ternary.pos.getPrintableRepr(alloc);
+                defer alloc.free(pos_output);
+                const neg_output = try ternary.neg.getPrintableRepr(alloc);
+                defer alloc.free(neg_output);
+                const condition = try ternary.cond.getPrintableRepr(alloc);
+                defer alloc.free(condition);
+                return try std.fmt.allocPrint(alloc, "cond: {s}\npos: {s}\nneg: {s}", .{ condition, pos_output, neg_output });
+            },
         };
     }
 
@@ -129,6 +139,18 @@ pub const Binary = struct {
     pub fn deinit(self: *const Binary, alloc: std.mem.Allocator) void {
         self.left.deinit(alloc);
         self.right.deinit(alloc);
+    }
+};
+
+pub const Ternary = struct {
+    cond: *Expr,
+    pos: *Expr,
+    neg: *Expr,
+
+    pub fn deinit(self: *const Ternary, alloc: std.mem.Allocator) void {
+        self.cond.deinit(alloc);
+        self.pos.deinit(alloc);
+        self.neg.deinit(alloc);
     }
 };
 
