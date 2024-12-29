@@ -4,10 +4,23 @@ const TokenType = @import("token.zig").TokenType;
 const Expr = @import("ast.zig").Expr;
 const Operator = @import("ast.zig").Operator;
 
-const ParsingError = error{
-    MissingParen,
+pub const ParsingError = error{
     MalformedBuffer,
-} || std.mem.Allocator.Error || std.fmt.ParseFloatError;
+} || std.mem.Allocator.Error || std.fmt.ParseFloatError || GroupParsingError || TernaryParsingError || BinaryExprParsingError;
+
+pub const GroupParsingError = error{MissingParen};
+
+pub const TernaryParsingError = error{
+    TernaryMissingCond,
+    TernaryMissingSemicolon,
+};
+
+pub const BinaryExprParsingError = error{BinaryExprMissingOperand};
+
+pub const ParsingErrorCtx = struct {
+    token: *const Token,
+    err: ParsingError,
+};
 
 // Parsers is like scanner but for parsing (scanner is for lexing)
 // Parser takes a list of tokens and produces ast
@@ -39,6 +52,7 @@ const ParsingError = error{
 // - User buffer specific data ARE copied here and would be owned by the AST.
 pub const Parser = struct {
     tokens: std.ArrayList(Token),
+    errors: std.ArrayList(ParsingErrorCtx),
     cur_idx: usize = 0,
     // This is a managed struct
     alloc: std.mem.Allocator,
@@ -50,6 +64,7 @@ pub const Parser = struct {
 
     pub fn deinit(self: *Parser) void {
         self.tokens.deinit();
+        self.errors.deinit();
     }
 
     fn expression(self: *Parser) !*Expr {
@@ -58,95 +73,280 @@ pub const Parser = struct {
     }
 
     fn ternary(self: *Parser) !*Expr {
-        var expr = try self.equality();
-        errdefer expr.deinit(self.alloc);
+        const cur_idx = self.cur_idx;
+        var rule_lvl_err: ?ParsingError = null;
         if (self.match(&[_]TokenType{.QUESTION_MARK})) |_| {
-            const positive_expr = try self.equality();
-            errdefer positive_expr.deinit(self.alloc);
-            if (self.match(&[_]TokenType{.SEMICOLON})) |_| {
-                const negative_expr = try self.equality();
-                errdefer negative_expr.deinit(self.alloc);
-                const complete_ternary_expr = try self.alloc.create(Expr);
-                errdefer self.alloc.destroy(complete_ternary_expr);
-                complete_ternary_expr.* = Expr{ .TERNARY = .{
-                    .cond = expr,
-                    .pos = positive_expr,
-                    .neg = negative_expr,
-                } };
-                return complete_ternary_expr;
-            } else {
-                return error.MalformedBuffer;
+            rule_lvl_err = error.TernaryMissingCond;
+            try self.errors.append(.{
+                .err = rule_lvl_err.?,
+                .token = &self.tokens.items[cur_idx],
+            });
+            if (self.equality()) |res| {
+                res.deinit(self.alloc);
+            } else |_| {}
+            if (self.match(&[_]TokenType{.COLON})) |_| {
+                if (self.equality()) |res| {
+                    res.deinit(self.alloc);
+                } else |_| {}
+            }
+            return rule_lvl_err.?;
+        }
+        var cond_res = self.equality();
+        if (self.match(&[_]TokenType{.QUESTION_MARK})) |_| ques_mark_blk: {
+            if (cond_res) |expr| {
+                const pos_expr_res = self.equality();
+                if (pos_expr_res) |pos_expr| {
+                    errdefer pos_expr.deinit(self.alloc);
+                } else |err| {
+                    if (rule_lvl_err == null) {
+                        rule_lvl_err = err;
+                    }
+                }
+                if (self.match(&[_]TokenType{.COLON})) |_| {
+                    const neg_expr_res = self.equality();
+                    if (neg_expr_res) |neg_expr| {
+                        errdefer neg_expr.deinit(self.alloc);
+                    } else |err| {
+                        if (rule_lvl_err == null) {
+                            rule_lvl_err = err;
+                        }
+                    }
+                    if (pos_expr_res) |pos_expr| {
+                        if (neg_expr_res) |neg_expr| {
+                            const complete_ternary_expr = try self.alloc.create(Expr);
+                            errdefer self.alloc.destroy(complete_ternary_expr);
+                            if (rule_lvl_err == null) {
+                                complete_ternary_expr.* = Expr{ .TERNARY = .{
+                                    .cond = expr,
+                                    .pos = pos_expr,
+                                    .neg = neg_expr,
+                                } };
+                                cond_res = complete_ternary_expr;
+                                break :ques_mark_blk;
+                            }
+                        } else |err| {
+                            if (rule_lvl_err == null) {
+                                rule_lvl_err = err;
+                            }
+                            break :ques_mark_blk;
+                        }
+                    } else |err| {
+                        if (rule_lvl_err == null) {
+                            rule_lvl_err = err;
+                        }
+                        break :ques_mark_blk;
+                    }
+                } else {
+                    try self.errors.append(.{
+                        .err = error.TernaryMissingSemicolon,
+                        .token = &self.tokens.items[cur_idx],
+                    });
+                    break :ques_mark_blk;
+                }
+            } else |_| {
+                // We do not have a valid cond expr.
+                // Try to parse the positive and negative expr anyway and discard them.
+                // There is no need to report the error here because each rule only reports error occurred at its own level.
+                if (self.equality()) |expr| expr.deinit(self.alloc) else |_| {}
+                if (self.match(&[_]TokenType{.COLON})) |_| {
+                    if (self.equality()) |expr| expr.deinit(self.alloc) else |_| {}
+                }
+                return error.TernaryMissingCond;
             }
         }
-        return expr;
+        if (rule_lvl_err) |e| {
+            return e;
+        } else {
+            return cond_res catch |e| e;
+        }
     }
 
     fn equality(self: *Parser) !*Expr {
-        var left = try self.comparison();
+        var rule_lvl_err: ?ParsingError = null;
         const match_input = [_]TokenType{ .BANG_EQUAL, .EQUAL_EQUAL };
-        while (self.match(&match_input)) |op| {
-            const right = try self.comparison();
-            const operator = try Operator.fromToken(op.*);
-            const new_left = try self.alloc.create(Expr);
-            new_left.* = Expr{ .BINARY = .{
-                .left = left,
-                .operator = operator,
-                .right = right,
-            } };
-            left = new_left;
+        if (self.match(&match_input)) |_| {
+            rule_lvl_err = error.BinaryExprMissingOperand;
+            try self.errors.append(.{
+                .err = rule_lvl_err.?,
+                .token = &self.tokens.items[self.cur_idx],
+            });
+            if (self.comparison()) |res| {
+                res.deinit(self.alloc);
+            } else |_| {}
+            return rule_lvl_err.?;
         }
-        return left;
+        var left = self.comparison();
+        while (self.match(&match_input)) |op| {
+            const right = self.comparison();
+            if (left) |left_expr| {
+                errdefer left_expr.deinit(self.alloc);
+                if (right) |right_expr| {
+                    errdefer right_expr.deinit(self.alloc);
+                    const operator = try Operator.fromToken(op.*);
+                    const new_left = try self.alloc.create(Expr);
+                    new_left.* = Expr{ .BINARY = .{
+                        .left = left_expr,
+                        .operator = operator,
+                        .right = right_expr,
+                    } };
+                    left = new_left;
+                } else |err| {
+                    if (rule_lvl_err == null) {
+                        rule_lvl_err = err;
+                    }
+                }
+            } else |err| {
+                if (rule_lvl_err == null) {
+                    rule_lvl_err = err;
+                }
+            }
+        }
+        if (rule_lvl_err) |err| {
+            return err;
+        } else {
+            return left;
+        }
     }
 
     fn comparison(self: *Parser) !*Expr {
-        var left = try self.term();
+        var rule_lvl_err: ?ParsingError = null;
         const match_input = [_]TokenType{ .GREATER, .GREATER_EQUAL, .LESS, .LESS_EQUAL };
-        while (self.match(&match_input)) |op| {
-            const right = try self.term();
-            const operator = try Operator.fromToken(op.*);
-            const new_left = try self.alloc.create(Expr);
-            new_left.* = Expr{ .BINARY = .{
-                .left = left,
-                .operator = operator,
-                .right = right,
-            } };
-            left = new_left;
+        if (self.match(&match_input)) |_| {
+            rule_lvl_err = error.BinaryExprMissingOperand;
+            try self.errors.append(.{
+                .err = rule_lvl_err.?,
+                .token = &self.tokens.items[self.cur_idx],
+            });
+            if (self.term()) |res| {
+                res.deinit(self.alloc);
+            } else |_| {}
+            return rule_lvl_err.?;
         }
-        return left;
+        var left = self.term();
+        while (self.match(&match_input)) |op| {
+            const right = self.term();
+            if (left) |left_expr| {
+                errdefer left_expr.deinit(self.alloc);
+                if (right) |right_expr| {
+                    errdefer right_expr.deinit(self.alloc);
+                    const operator = try Operator.fromToken(op.*);
+                    const new_left = try self.alloc.create(Expr);
+                    new_left.* = Expr{ .BINARY = .{
+                        .left = left_expr,
+                        .operator = operator,
+                        .right = right_expr,
+                    } };
+                    left = new_left;
+                } else |err| {
+                    if (rule_lvl_err == null) {
+                        rule_lvl_err = err;
+                    }
+                }
+            } else |err| {
+                if (rule_lvl_err == null) {
+                    rule_lvl_err = err;
+                }
+            }
+        }
+        if (rule_lvl_err) |err| {
+            return err;
+        } else {
+            return left;
+        }
     }
 
     fn term(self: *Parser) !*Expr {
-        var left = try self.factor();
+        var rule_lvl_err: ?ParsingError = null;
         const match_input = [_]TokenType{ .MINUS, .PLUS };
-        while (self.match(&match_input)) |op| {
-            const right = try self.factor();
-            const operator = try Operator.fromToken(op.*);
-            const new_left = try self.alloc.create(Expr);
-            new_left.* = Expr{ .BINARY = .{
-                .left = left,
-                .operator = operator,
-                .right = right,
-            } };
-            left = new_left;
+        if (self.match(&match_input)) |_| {
+            rule_lvl_err = error.BinaryExprMissingOperand;
+            try self.errors.append(.{
+                .err = rule_lvl_err.?,
+                .token = &self.tokens.items[self.cur_idx],
+            });
+            if (self.factor()) |res| {
+                res.deinit(self.alloc);
+            } else |_| {}
+            return rule_lvl_err.?;
         }
-        return left;
+        var left = self.factor();
+        while (self.match(&match_input)) |op| {
+            const right = self.factor();
+            if (left) |left_expr| {
+                errdefer left_expr.deinit(self.alloc);
+                if (right) |right_expr| {
+                    errdefer right_expr.deinit(self.alloc);
+                    const operator = try Operator.fromToken(op.*);
+                    const new_left = try self.alloc.create(Expr);
+                    new_left.* = Expr{ .BINARY = .{
+                        .left = left_expr,
+                        .operator = operator,
+                        .right = right_expr,
+                    } };
+                    left = new_left;
+                } else |err| {
+                    if (rule_lvl_err == null) {
+                        rule_lvl_err = err;
+                    }
+                }
+            } else |err| {
+                if (rule_lvl_err == null) {
+                    rule_lvl_err = err;
+                }
+            }
+        }
+        if (rule_lvl_err) |err| {
+            return err;
+        } else {
+            return left;
+        }
     }
 
     fn factor(self: *Parser) !*Expr {
-        var left = try self.unary();
+        var rule_lvl_err: ?ParsingError = null;
         const match_input = [_]TokenType{ .SLASH, .STAR };
-        while (self.match(&match_input)) |op| {
-            const right = try self.unary();
-            const operator = try Operator.fromToken(op.*);
-            const new_left = try self.alloc.create(Expr);
-            new_left.* = Expr{ .BINARY = .{
-                .left = left,
-                .operator = operator,
-                .right = right,
-            } };
-            left = new_left;
+        if (self.match(&match_input)) |_| {
+            rule_lvl_err = error.BinaryExprMissingOperand;
+            try self.errors.append(.{
+                .err = rule_lvl_err.?,
+                .token = &self.tokens.items[self.cur_idx],
+            });
+            if (self.unary()) |res| {
+                res.deinit(self.alloc);
+            } else |_| {}
+            return rule_lvl_err.?;
         }
-        return left;
+        var left = self.unary();
+        while (self.match(&match_input)) |op| {
+            const right = self.unary();
+            if (left) |left_expr| {
+                errdefer left_expr.deinit(self.alloc);
+                if (right) |right_expr| {
+                    errdefer right_expr.deinit(self.alloc);
+                    const operator = try Operator.fromToken(op.*);
+                    const new_left = try self.alloc.create(Expr);
+                    new_left.* = Expr{ .BINARY = .{
+                        .left = left_expr,
+                        .operator = operator,
+                        .right = right_expr,
+                    } };
+                    left = new_left;
+                } else |err| {
+                    if (rule_lvl_err == null) {
+                        rule_lvl_err = err;
+                    }
+                }
+            } else |err| {
+                if (rule_lvl_err == null) {
+                    rule_lvl_err = err;
+                }
+            }
+        }
+        if (rule_lvl_err) |err| {
+            return err;
+        } else {
+            return left;
+        }
     }
 
     fn unary(self: *Parser) !*Expr {
@@ -248,6 +448,7 @@ pub const Parser = struct {
 test "match" {
     var parser = Parser{
         .tokens = std.ArrayList(Token).init(std.testing.allocator),
+        .errors = std.ArrayList(ParsingErrorCtx).init(std.testing.allocator),
         .alloc = std.testing.allocator,
     };
     defer parser.deinit();
@@ -263,8 +464,11 @@ test "primary" {
     const alloc = std.testing.allocator;
     const tokens = std.ArrayList(Token).init(alloc);
     defer tokens.deinit();
+    const errors = std.ArrayList(ParsingErrorCtx).init(alloc);
+    defer errors.deinit();
     var parser = Parser{
         .alloc = alloc,
+        .errors = errors,
         .tokens = tokens,
     };
     const test_tokens = [_]Token{
@@ -285,8 +489,11 @@ test "overall parsing one" {
     const alloc = std.testing.allocator;
     const tokens = std.ArrayList(Token).init(alloc);
     defer tokens.deinit();
+    const errors = std.ArrayList(ParsingErrorCtx).init(alloc);
+    defer errors.deinit();
     var parser = Parser{
         .alloc = alloc,
+        .errors = errors,
         .tokens = tokens,
     };
     // A bunch of test tokens here to test every rule
@@ -322,12 +529,15 @@ test "overall parsing one" {
     std.debug.assert(right.LITERAL.NUMBER == 3.0);
 }
 
-test "overall parsing two" {
+test "overall parsing ternary" {
     const alloc = std.testing.allocator;
     const tokens = std.ArrayList(Token).init(alloc);
     defer tokens.deinit();
+    const errors = std.ArrayList(ParsingErrorCtx).init(alloc);
+    defer errors.deinit();
     var parser = Parser{
         .alloc = alloc,
+        .errors = errors,
         .tokens = tokens,
     };
     const test_tokens = [_]Token{
@@ -336,12 +546,75 @@ test "overall parsing two" {
         Token{ .NUMBER = .{ .line = 0, .lexeme = "100" } },
         Token{ .QUESTION_MARK = .{ .line = 0 } },
         Token{ .NUMBER = .{ .line = 0, .lexeme = "1.1" } },
-        Token{ .SEMICOLON = .{ .line = 0 } },
+        Token{ .COLON = .{ .line = 0 } },
         Token{ .NUMBER = .{ .line = 0, .lexeme = "2.2" } },
     };
     parser.tokens.appendSlice(&test_tokens) catch unreachable;
     defer parser.deinit();
     const res = parser.getAST() catch unreachable;
     defer res.deinit(parser.alloc);
-    std.debug.print("{any}\n", .{res.*});
+    std.debug.assert(std.meta.activeTag(res.*) == .TERNARY);
+    const cond = res.TERNARY.cond;
+    std.debug.assert(std.meta.activeTag(cond.*) == .BINARY);
+    const pos = res.TERNARY.pos;
+    std.debug.assert(std.meta.activeTag(pos.*) == .LITERAL);
+    std.debug.assert(std.meta.activeTag(pos.LITERAL) == .NUMBER);
+    const neg = res.TERNARY.neg;
+    std.debug.assert(std.meta.activeTag(neg.*) == .LITERAL);
+    std.debug.assert(std.meta.activeTag(neg.LITERAL) == .NUMBER);
 }
+
+test "error recovery ternary" {
+    const alloc = std.testing.allocator;
+    const tokens = std.ArrayList(Token).init(alloc);
+    defer tokens.deinit();
+    const errors = std.ArrayList(ParsingErrorCtx).init(alloc);
+    defer errors.deinit();
+    var parser = Parser{
+        .alloc = alloc,
+        .errors = errors,
+        .tokens = tokens,
+    };
+    const test_tokens = [_]Token{
+        Token{ .QUESTION_MARK = .{ .line = 0 } },
+        Token{ .NUMBER = .{ .line = 0, .lexeme = "1.1" } },
+        Token{ .COLON = .{ .line = 0 } },
+        Token{ .NUMBER = .{ .line = 0, .lexeme = "2.2" } },
+    };
+    parser.tokens.appendSlice(&test_tokens) catch unreachable;
+    defer parser.deinit();
+    const res = parser.getAST();
+    if (res) |ast| {
+        defer ast.deinit(parser.alloc);
+    } else |_| {}
+    std.debug.assert(res == error.TernaryMissingCond);
+    std.debug.assert(parser.errors.items.len == 1);
+    const err = &parser.errors.items[0];
+    std.debug.assert(std.meta.activeTag(err.token.*) == .QUESTION_MARK);
+}
+
+//test "error recovery binary" {
+//const alloc = std.testing.allocator;
+//const tokens = std.ArrayList(Token).init(alloc);
+//defer tokens.deinit();
+//const errors = std.ArrayList(ParsingErrorCtx).init(alloc);
+//defer errors.deinit();
+//var parser = Parser{
+//.alloc = alloc,
+//.errors = errors,
+//.tokens = tokens,
+//};
+//const test_tokens = [_]Token{
+//Token{ .NUMBER = .{ .line = 0, .lexeme = "1.1" } },
+//};
+//parser.tokens.appendSlice(&test_tokens) catch unreachable;
+//defer parser.deinit();
+//const res = parser.getAST();
+//if (res) |ast| {
+//defer ast.deinit(parser.alloc);
+//} else |_| {}
+//std.debug.assert(res == error.TernaryMissingCond);
+//std.debug.assert(parser.errors.items.len > 0);
+//const err = &parser.errors.items[0];
+//std.debug.assert(std.meta.activeTag(err.token.*) == .QUESTION_MARK);
+//}

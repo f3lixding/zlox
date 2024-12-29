@@ -10,6 +10,7 @@ pub const TokenType = enum {
     MINUS,
     PLUS,
     SEMICOLON,
+    COLON,
     SLASH,
     STAR,
     QUESTION_MARK,
@@ -90,6 +91,10 @@ pub const Token = union(TokenType) {
     SEMICOLON: struct {
         line: usize,
         lexeme: u8 = ';',
+    },
+    COLON: struct {
+        line: usize,
+        lexeme: u8 = ':',
     },
     SLASH: struct {
         line: usize,
