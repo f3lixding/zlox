@@ -7,6 +7,11 @@ pub const InterpreterError = error{
 };
 
 pub const Interpreter = struct {
+    // In the book (the java section), the return of evaluate is an Object. This is because the interpreter's design
+    // is to return an unified type and during runtime, the interpreter will sort out what type the Object actually
+    // is with runtime reflection (i.e. use of instanceof).
+    // This is not idiomatically Zig (and I also don't know if it's even possible in Zig). Thus I am opting for an
+    // error union of Literal.
     pub fn evaluate(self: *Interpreter, expr: *const Expr) InterpreterError!Literal {
         return switch (expr.*) {
             .LITERAL => |l| l,
