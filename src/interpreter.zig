@@ -191,8 +191,13 @@ pub const Interpreter = struct {
                 }
             },
             .GROUPING => |*g| self.evaluate(g.expr),
-            // TODO: enable evaluation of ternary expression
-            .TERNARY => |_| Literal{ .TRUE = {} },
+            .TERNARY => |t| {
+                const cond = t.cond;
+                const pos = t.pos;
+                const neg = t.neg;
+                const cond_res = try self.evaluate(cond);
+                return if (isTruthy(cond_res)) try self.evaluate(pos) else try self.evaluate(neg);
+            },
         };
     }
 
@@ -255,3 +260,5 @@ test "evaluate unary" {
     const eval_res = try interpreter.evaluate(&neg_number_expr);
     std.debug.assert(std.meta.activeTag(eval_res) == .NUMBER);
 }
+
+test "evaluate ternary" {}
