@@ -10,8 +10,23 @@ pub const Interpreter = struct {
     pub fn evaluate(self: *Interpreter, expr: *const Expr) InterpreterError!Literal {
         return switch (expr.*) {
             .LITERAL => |l| l,
-            // TODO: enable evaluation of unary expression
-            .UNARY => |_| Literal{ .TRUE = {} },
+            .UNARY => |u| {
+                switch (u) {
+                    .NEGATIVE => |inner_expr| {
+                        const res = try self.evaluate(inner_expr);
+                        if (std.meta.activeTag(res) != .NUMBER) return error.OperationNotSupported;
+                        return Literal{ .NUMBER = -1 * res.NUMBER };
+                    },
+                    .NOT => |inner_expr| {
+                        const res = try self.evaluate(inner_expr);
+                        return switch (res) {
+                            .TRUE => Literal{ .FALSE = {} },
+                            .FALSE, .NIL => Literal{ .TRUE = {} },
+                            else => error.OperationNotSupported,
+                        };
+                    },
+                }
+            },
             .BINARY => |*b| {
                 const left = try self.evaluate(b.left);
                 const right = try self.evaluate(b.right);
@@ -226,4 +241,12 @@ test "evaluate binary" {
     } };
     const eval_res_two = interpreter.evaluate(&str_num_bin_expr);
     std.debug.assert(std.meta.isError(eval_res_two));
+}
+
+test "evaluate unary" {
+    var literal_number_expr = Expr{ .LITERAL = Literal{ .NUMBER = 3.4 } };
+    const neg_number_expr = Expr{ .UNARY = .{ .NEGATIVE = &literal_number_expr } };
+    var interpreter = Interpreter{};
+    const eval_res = try interpreter.evaluate(&neg_number_expr);
+    std.debug.assert(std.meta.activeTag(eval_res) == .NUMBER);
 }
