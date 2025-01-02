@@ -257,8 +257,17 @@ test "evaluate unary" {
     var literal_number_expr = Expr{ .LITERAL = Literal{ .NUMBER = 3.4 } };
     const neg_number_expr = Expr{ .UNARY = .{ .NEGATIVE = &literal_number_expr } };
     var interpreter = Interpreter{};
-    const eval_res = try interpreter.evaluate(&neg_number_expr);
+    var eval_res = try interpreter.evaluate(&neg_number_expr);
     std.debug.assert(std.meta.activeTag(eval_res) == .NUMBER);
+    std.debug.assert(eval_res.NUMBER == -3.4);
+    var literal_true_expr = Expr{ .LITERAL = Literal{ .TRUE = {} } };
+    const not_expr = Expr{ .UNARY = .{ .NOT = &literal_true_expr } };
+    eval_res = try interpreter.evaluate(&not_expr);
+    std.debug.assert(std.meta.activeTag(eval_res) == .FALSE);
+    var literal_str_expr = Expr{ .LITERAL = Literal{ .STRING = "hello" } };
+    const neg_str_expr = Expr{ .UNARY = .{ .NEGATIVE = &literal_str_expr } };
+    const eval_res_two = interpreter.evaluate(&neg_str_expr);
+    std.debug.assert(std.meta.isError(eval_res_two));
 }
 
 test "evaluate ternary" {}
