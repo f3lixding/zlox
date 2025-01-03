@@ -54,8 +54,7 @@ pub const Interpreter = struct {
                                 if (std.mem.eql(u8, left_str, right_str)) return Literal{ .TRUE = {} };
                                 return Literal{ .FALSE = {} };
                             },
-                            .TRUE, .FALSE => return Literal{ .TRUE = {} },
-                            .NIL => return Literal{ .FALSE = {} },
+                            .TRUE, .FALSE, .NIL => return Literal{ .TRUE = {} },
                         }
                     },
                     .BANG_EQUAL => {
@@ -158,6 +157,8 @@ pub const Interpreter = struct {
                                 const right_num = right.NUMBER;
                                 return Literal{ .NUMBER = left_num + right_num };
                             },
+                            // I had deliberately left out the string concatenation for plus operator
+                            // TODO: implement an operator for string concatenation
                             .STRING, .TRUE, .FALSE, .NIL => return error.OperationNotSupported,
                         }
                     },
@@ -300,11 +301,11 @@ test "evaluate group" {
         .operator = .PLUS,
         .right = &literal_num_expr_two,
     } };
-    const group_expr = Expr{ .GROUPING = .{ .expr = &addition_expr } };
+    var group_expr = Expr{ .GROUPING = .{ .expr = &addition_expr } };
     var literal_num_expr_three = Expr{ .LITERAL = Literal{ .NUMBER = 2.0 } };
     var division_expr = Expr{ .BINARY = .{
         .left = &group_expr,
-        .operator = .DIVIDE,
+        .operator = .SLASH,
         .right = &literal_num_expr_three,
     } };
     var interpreter = Interpreter{};
