@@ -270,4 +270,26 @@ test "evaluate unary" {
     std.debug.assert(std.meta.isError(eval_res_two));
 }
 
-test "evaluate ternary" {}
+test "evaluate ternary" {
+    const Operator = @import("ast.zig").Operator;
+    var tern_left_expr = Expr{ .LITERAL = Literal{ .NUMBER = 1.0 } };
+    var tern_right_expr = Expr{ .LITERAL = Literal{ .NUMBER = 2.0 } };
+    var tern_cond_bin_left = Expr{ .LITERAL = Literal{ .NUMBER = 3.3 } };
+    var tern_cond_bin_right = Expr{ .LITERAL = Literal{ .NUMBER = 3.2 } };
+    const tern_cond_bin_op = Operator{ .DOUBLE_EQUAL = {} };
+    var tern_cond_expr = Expr{ .BINARY = .{
+        .left = &tern_cond_bin_left,
+        .operator = tern_cond_bin_op,
+        .right = &tern_cond_bin_right,
+    } };
+    const tern_expr = Expr{ .TERNARY = .{
+        .pos = &tern_left_expr,
+        .neg = &tern_right_expr,
+        .cond = &tern_cond_expr,
+    } };
+    var interpreter = Interpreter{};
+    const eval_res = try interpreter.evaluate(&tern_expr);
+    std.debug.assert(eval_res.NUMBER == 2.0);
+}
+
+test "evaluate group" {}
