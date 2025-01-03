@@ -292,4 +292,22 @@ test "evaluate ternary" {
     std.debug.assert(eval_res.NUMBER == 2.0);
 }
 
-test "evaluate group" {}
+test "evaluate group" {
+    var literal_num_expr_one = Expr{ .LITERAL = Literal{ .NUMBER = 3.4 } };
+    var literal_num_expr_two = Expr{ .LITERAL = Literal{ .NUMBER = 3.4 } };
+    var addition_expr = Expr{ .BINARY = .{
+        .left = &literal_num_expr_one,
+        .operator = .PLUS,
+        .right = &literal_num_expr_two,
+    } };
+    const group_expr = Expr{ .GROUPING = .{ .expr = &addition_expr } };
+    var literal_num_expr_three = Expr{ .LITERAL = Literal{ .NUMBER = 2.0 } };
+    var division_expr = Expr{ .BINARY = .{
+        .left = &group_expr,
+        .operator = .DIVIDE,
+        .right = &literal_num_expr_three,
+    } };
+    var interpreter = Interpreter{};
+    const eval_res = try interpreter.evaluate(&division_expr);
+    std.debug.assert(eval_res.NUMBER == 3.4);
+}
