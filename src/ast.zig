@@ -1,12 +1,25 @@
 const std = @import("std");
 const Token = @import("token.zig").Token;
 
-pub const Expr = union(enum) {
-    LITERAL: Literal,
-    UNARY: Unary,
-    BINARY: Binary,
-    GROUPING: Grouping,
-    TERNARY: Ternary,
+pub const Location = struct {
+    line: usize = 0,
+    // TODO: add more fields to map parsed token with source code
+};
+
+pub const ExprType = enum {
+    LITERAL,
+    UNARY,
+    BINARY,
+    GROUPING,
+    TERNARY,
+};
+
+pub const Expr = union(ExprType) {
+    LITERAL: struct { Location, Literal },
+    UNARY: struct { Location, Unary },
+    BINARY: struct { Location, Binary },
+    GROUPING: struct { Location, Grouping },
+    TERNARY: struct { Location, Ternary },
 
     // This might not be the most idiomatic way of writing deinit (most of the deinit I see do not require args)
     // Also we have a deinit routine without an init routine.
@@ -14,8 +27,9 @@ pub const Expr = union(enum) {
     pub fn deinit(self: *const Expr, alloc: std.mem.Allocator) void {
         switch (self.*) {
             inline else => |*inner_struct| {
-                std.debug.assert(@hasDecl(@TypeOf(inner_struct.*), "deinit"));
-                inner_struct.deinit(alloc);
+                const inner_expr = inner_struct.@"1";
+                std.debug.assert(@hasDecl(@TypeOf(inner_expr), "deinit"));
+                inner_expr.deinit(alloc);
                 // We would have have this in the Expr level (and not in the inner struct level).
                 // This is because the range of addresses for an Expr already includes the inner struct.
                 // But we'll still need to pass in the allocator in the deinit because Expr is recursive.
@@ -27,7 +41,7 @@ pub const Expr = union(enum) {
     pub fn getPrintableRepr(self: Expr, alloc: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .LITERAL => |literal| {
-                switch (literal) {
+                switch (literal.@"1") {
                     .NUMBER => |num| return try std.fmt.allocPrint(alloc, "{d}", .{num}),
                     .STRING => |str| return try std.fmt.allocPrint(alloc, "\"{s}\"", .{str}),
                     .TRUE => return try std.fmt.allocPrint(alloc, "true", .{}),
@@ -36,7 +50,7 @@ pub const Expr = union(enum) {
                 }
             },
             .UNARY => |unary| {
-                switch (unary) {
+                switch (unary.@"1") {
                     .NEGATIVE => |inner| {
                         const child = try inner.getPrintableRepr(alloc);
                         defer alloc.free(child);
@@ -50,11 +64,11 @@ pub const Expr = union(enum) {
                 }
             },
             .BINARY => |binary| {
-                const left_output = try binary.left.getPrintableRepr(alloc);
+                const left_output = try binary.@"1".left.getPrintableRepr(alloc);
                 defer alloc.free(left_output);
-                const right_output = try binary.right.getPrintableRepr(alloc);
+                const right_output = try binary.@"1".right.getPrintableRepr(alloc);
                 defer alloc.free(right_output);
-                switch (binary.operator) {
+                switch (binary.@"1".operator) {
                     .DOUBLE_EQUAL => return try std.fmt.allocPrint(alloc, "({s} == {s})", .{ left_output, right_output }),
                     .BANG_EQUAL => return try std.fmt.allocPrint(alloc, "({s} != {s})", .{ left_output, right_output }),
                     .GREATER => return try std.fmt.allocPrint(alloc, "({s} > {s})", .{ left_output, right_output }),
@@ -69,16 +83,16 @@ pub const Expr = union(enum) {
                 }
             },
             .GROUPING => |grouping| {
-                const child = try grouping.expr.getPrintableRepr(alloc);
+                const child = try grouping.@"1".expr.getPrintableRepr(alloc);
                 defer alloc.free(child);
                 return try std.fmt.allocPrint(alloc, "({s})", .{child});
             },
             .TERNARY => |ternary| {
-                const pos_output = try ternary.pos.getPrintableRepr(alloc);
+                const pos_output = try ternary.@"1".pos.getPrintableRepr(alloc);
                 defer alloc.free(pos_output);
-                const neg_output = try ternary.neg.getPrintableRepr(alloc);
+                const neg_output = try ternary.@"1".neg.getPrintableRepr(alloc);
                 defer alloc.free(neg_output);
-                const condition = try ternary.cond.getPrintableRepr(alloc);
+                const condition = try ternary.@"1".cond.getPrintableRepr(alloc);
                 defer alloc.free(condition);
                 return try std.fmt.allocPrint(alloc, "cond: {s}\npos: {s}\nneg: {s}", .{ condition, pos_output, neg_output });
             },
@@ -99,13 +113,25 @@ pub const Literal = union(enum) {
     FALSE,
     NIL,
 
-    // Noop. The string is not to be owned by the parser.
-    // If we change our mind in the future about this we will change this.
-    // Because all other Expr delegates the deinit to its inner struct,
-    // and it bottoms out at Literal, effectively we don't do anything for deinit.
+    pub fn fromToken(alloc: std.mem.Allocator, token: *const Token) !Literal {
+        return switch (token.*) {
+            .NUMBER => |inner_struct| Literal{ .NUMBER = try std.fmt.parseFloat(f64, inner_struct.lexeme) },
+            .STRING => |inner_struct| {
+                const lexeme = inner_struct.lexeme;
+                return Literal{ .STRING = try alloc.dupe(u8, lexeme) };
+            },
+            .TRUE => |_| Literal{ .TRUE = {} },
+            .FALSE => |_| Literal{ .FALSE = {} },
+            .NIL => |_| Literal{ .NIL = {} },
+            else => unreachable,
+        };
+    }
+
     pub fn deinit(self: *const Literal, alloc: std.mem.Allocator) void {
-        _ = self;
-        _ = alloc;
+        switch (self.*) {
+            .STRING => |s| alloc.free(s),
+            else => {},
+        }
     }
 };
 
@@ -188,20 +214,20 @@ pub const Operator = union(enum) {
 test "pretty print test" {
     // Testing for a simple unary expression
     const literal_true = Literal{ .TRUE = {} };
-    var literal_true_expr = Expr{ .LITERAL = literal_true };
+    var literal_true_expr = Expr{ .LITERAL = .{ .{}, literal_true } };
     const unary_not_true = Unary{ .NOT = &literal_true_expr };
-    const expr_unary = Expr{ .UNARY = unary_not_true };
+    const expr_unary = Expr{ .UNARY = .{ .{}, unary_not_true } };
     const print_from_expr_unary = try expr_unary.getPrintableRepr(std.testing.allocator);
     defer std.testing.allocator.free(print_from_expr_unary);
     std.debug.assert(std.mem.eql(u8, print_from_expr_unary, "(! true)"));
 
     // Testing for a simple binary expression
     const literal_1 = Literal{ .NUMBER = 1.1 };
-    var literal_1_expr = Expr{ .LITERAL = literal_1 };
+    var literal_1_expr = Expr{ .LITERAL = .{ .{}, literal_1 } };
     const literal_2 = Literal{ .NUMBER = 2.1 };
-    var literal_2_expr = Expr{ .LITERAL = literal_2 };
+    var literal_2_expr = Expr{ .LITERAL = .{ .{}, literal_2 } };
     const binary_plus = Binary{ .left = &literal_1_expr, .operator = .PLUS, .right = &literal_2_expr };
-    const expr_binary = Expr{ .BINARY = binary_plus };
+    const expr_binary = Expr{ .BINARY = .{ .{}, binary_plus } };
     const print_from_expr_binary = try expr_binary.getPrintableRepr(std.testing.allocator);
     defer std.testing.allocator.free(print_from_expr_binary);
     std.debug.assert(std.mem.eql(u8, print_from_expr_binary, "(1.1 + 2.1)"));
@@ -209,14 +235,14 @@ test "pretty print test" {
     // Testing for a simple grouping expression
     const literal_3 = Literal{ .NUMBER = 3.0 };
     const literal_4 = Literal{ .NUMBER = 4.0 };
-    var expr_literal_3 = Expr{ .LITERAL = literal_3 };
-    var expr_literal_4 = Expr{ .LITERAL = literal_4 };
+    var expr_literal_3 = Expr{ .LITERAL = .{ .{}, literal_3 } };
+    var expr_literal_4 = Expr{ .LITERAL = .{ .{}, literal_4 } };
     const binary_plus_3_4 = Binary{ .left = &expr_literal_3, .operator = .PLUS, .right = &expr_literal_4 };
-    var expr_binary_plus_3_4 = Expr{ .BINARY = binary_plus_3_4 };
+    var expr_binary_plus_3_4 = Expr{ .BINARY = .{ .{}, binary_plus_3_4 } };
     const grouping = Grouping{ .expr = &expr_binary_plus_3_4 };
-    var expr_grouping = Expr{ .GROUPING = grouping };
+    var expr_grouping = Expr{ .GROUPING = .{ .{}, grouping } };
     const binary_grouping_5 = Binary{ .left = &expr_literal_3, .operator = .STAR, .right = &expr_grouping };
-    const expr_grouping_5 = Expr{ .BINARY = binary_grouping_5 };
+    const expr_grouping_5 = Expr{ .BINARY = .{ .{}, binary_grouping_5 } };
     const print_from_expr_grouping = try expr_grouping_5.getPrintableRepr(std.testing.allocator);
     defer std.testing.allocator.free(print_from_expr_grouping);
     std.debug.assert(std.mem.eql(u8, print_from_expr_grouping, "(3 * ((3 + 4)))"));
@@ -227,10 +253,10 @@ test "deinit" {
     const literal_true = Literal{ .TRUE = {} };
     // We need to heap allocate this to simulate the actual routine during expr creation
     const literal_true_expr = alloc.create(Expr) catch unreachable;
-    literal_true_expr.* = Expr{ .LITERAL = literal_true };
+    literal_true_expr.* = Expr{ .LITERAL = .{ .{}, literal_true } };
     const unary_not_true = Unary{ .NOT = literal_true_expr };
     const expr_unary = alloc.create(Expr) catch unreachable;
-    expr_unary.* = Expr{ .UNARY = unary_not_true };
+    expr_unary.* = Expr{ .UNARY = .{ .{}, unary_not_true } };
     // This should not error out
     expr_unary.deinit(alloc);
 }

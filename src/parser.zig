@@ -3,6 +3,8 @@ const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 const Expr = @import("ast.zig").Expr;
 const Operator = @import("ast.zig").Operator;
+const Literal = @import("ast.zig").Literal;
+const Location = @import("ast.zig").Location;
 
 pub const ParsingError = error{
     MalformedBuffer,
@@ -57,6 +59,14 @@ pub const Parser = struct {
     // This is a managed struct
     alloc: std.mem.Allocator,
 
+    pub fn init(alloc: std.mem.Allocator) Parser {
+        return .{
+            .tokens = std.ArrayList(Token).init(alloc),
+            .errors = std.ArrayList(ParsingErrorCtx).init(alloc),
+            .alloc = alloc,
+        };
+    }
+
     pub fn getAST(self: *Parser) !*Expr {
         const expr = try self.expression();
         return expr;
@@ -92,7 +102,7 @@ pub const Parser = struct {
             return rule_lvl_err.?;
         }
         var cond_res = self.equality();
-        if (self.match(&[_]TokenType{.QUESTION_MARK})) |_| ques_mark_blk: {
+        if (self.match(&[_]TokenType{.QUESTION_MARK})) |question_mark_token| ques_mark_blk: {
             if (cond_res) |expr| {
                 const pos_expr_res = self.equality();
                 if (pos_expr_res) |pos_expr| {
@@ -117,9 +127,11 @@ pub const Parser = struct {
                             errdefer self.alloc.destroy(complete_ternary_expr);
                             if (rule_lvl_err == null) {
                                 complete_ternary_expr.* = Expr{ .TERNARY = .{
-                                    .cond = expr,
-                                    .pos = pos_expr,
-                                    .neg = neg_expr,
+                                    question_mark_token.getLocation(), .{
+                                        .cond = expr,
+                                        .pos = pos_expr,
+                                        .neg = neg_expr,
+                                    },
                                 } };
                                 cond_res = complete_ternary_expr;
                                 break :ques_mark_blk;
@@ -185,9 +197,11 @@ pub const Parser = struct {
                     const operator = try Operator.fromToken(op.*);
                     const new_left = try self.alloc.create(Expr);
                     new_left.* = Expr{ .BINARY = .{
-                        .left = left_expr,
-                        .operator = operator,
-                        .right = right_expr,
+                        op.getLocation(), .{
+                            .left = left_expr,
+                            .operator = operator,
+                            .right = right_expr,
+                        },
                     } };
                     left = new_left;
                 } else |err| {
@@ -232,9 +246,11 @@ pub const Parser = struct {
                     const operator = try Operator.fromToken(op.*);
                     const new_left = try self.alloc.create(Expr);
                     new_left.* = Expr{ .BINARY = .{
-                        .left = left_expr,
-                        .operator = operator,
-                        .right = right_expr,
+                        op.getLocation(), .{
+                            .left = left_expr,
+                            .operator = operator,
+                            .right = right_expr,
+                        },
                     } };
                     left = new_left;
                 } else |err| {
@@ -279,9 +295,11 @@ pub const Parser = struct {
                     const operator = try Operator.fromToken(op.*);
                     const new_left = try self.alloc.create(Expr);
                     new_left.* = Expr{ .BINARY = .{
-                        .left = left_expr,
-                        .operator = operator,
-                        .right = right_expr,
+                        op.getLocation(), .{
+                            .left = left_expr,
+                            .operator = operator,
+                            .right = right_expr,
+                        },
                     } };
                     left = new_left;
                 } else |err| {
@@ -326,9 +344,11 @@ pub const Parser = struct {
                     const operator = try Operator.fromToken(op.*);
                     const new_left = try self.alloc.create(Expr);
                     new_left.* = Expr{ .BINARY = .{
-                        .left = left_expr,
-                        .operator = operator,
-                        .right = right_expr,
+                        op.getLocation(), .{
+                            .left = left_expr,
+                            .operator = operator,
+                            .right = right_expr,
+                        },
                     } };
                     left = new_left;
                 } else |err| {
@@ -357,10 +377,10 @@ pub const Parser = struct {
             errdefer self.alloc.destroy(res);
             switch (op.*) {
                 .BANG => {
-                    res.* = Expr{ .UNARY = .{ .NOT = right } };
+                    res.* = Expr{ .UNARY = .{ op.getLocation(), .{ .NOT = right } } };
                 },
                 .MINUS => {
-                    res.* = Expr{ .UNARY = .{ .NEGATIVE = right } };
+                    res.* = Expr{ .UNARY = .{ op.getLocation(), .{ .NEGATIVE = right } } };
                 },
                 else => unreachable,
             }
@@ -375,26 +395,23 @@ pub const Parser = struct {
         errdefer self.alloc.destroy(res);
         if (self.match(&[_]TokenType{ .FALSE, .TRUE, .NIL })) |token| {
             res.* = switch (token.*) {
-                .TRUE => |_| Expr{ .LITERAL = .TRUE },
-                .FALSE => |_| Expr{ .LITERAL = .FALSE },
-                .NIL => |_| Expr{ .LITERAL = .NIL },
+                .TRUE, .FALSE, .NIL => Expr{ .LITERAL = .{ token.getLocation(), try Literal.fromToken(self.alloc, token) } },
                 else => unreachable,
             };
             return res;
         }
         if (self.match(&[_]TokenType{ .NUMBER, .STRING })) |token| {
             res.* = switch (token.*) {
-                .NUMBER => |inner_struct| Expr{ .LITERAL = .{ .NUMBER = try std.fmt.parseFloat(f64, inner_struct.lexeme) } },
-                .STRING => |inner_struct| Expr{ .LITERAL = .{ .STRING = inner_struct.lexeme } },
+                .NUMBER, .STRING => Expr{ .LITERAL = .{ token.getLocation(), try Literal.fromToken(self.alloc, token) } },
                 else => unreachable,
             };
             return res;
         }
-        if (self.match(&[_]TokenType{.LEFT_PAREN})) |_| {
+        if (self.match(&[_]TokenType{.LEFT_PAREN})) |token| {
             const expr = try self.expression();
             errdefer expr.deinit(self.alloc);
             if (self.match(&[_]TokenType{.RIGHT_PAREN})) |_| {
-                res.* = Expr{ .GROUPING = .{ .expr = expr } };
+                res.* = Expr{ .GROUPING = .{ token.getLocation(), .{ .expr = expr } } };
                 return res;
             } else {
                 return error.MissingParen;
@@ -481,7 +498,7 @@ test "primary" {
     const res = parser.primary() catch unreachable;
     defer res.deinit(parser.alloc);
     std.debug.assert(std.meta.activeTag(res.*) == .GROUPING);
-    std.debug.assert(std.meta.activeTag(res.GROUPING.expr.LITERAL) == .FALSE);
+    std.debug.assert(std.meta.activeTag(res.GROUPING.@"1".expr.LITERAL.@"1") == .FALSE);
 }
 
 test "overall parsing one" {
@@ -509,24 +526,24 @@ test "overall parsing one" {
     const res = parser.getAST() catch unreachable;
     defer res.deinit(parser.alloc);
     std.debug.assert(std.meta.activeTag(res.*) == .BINARY);
-    const main_op = &res.BINARY.operator;
+    const main_op = &res.BINARY.@"1".operator;
     std.debug.assert(std.meta.activeTag(main_op.*) == .MINUS);
-    const left = res.BINARY.left;
+    const left = res.BINARY.@"1".left;
     std.debug.assert(std.meta.activeTag(left.*) == .BINARY);
-    const left_left = left.BINARY.left;
+    const left_left = left.BINARY.@"1".left;
     std.debug.assert(std.meta.activeTag(left_left.*) == .LITERAL);
-    std.debug.assert(std.meta.activeTag(left_left.LITERAL) == .NUMBER);
-    std.debug.assert(left_left.LITERAL.NUMBER == 6.4);
-    const left_right = left.BINARY.right;
+    std.debug.assert(std.meta.activeTag(left_left.LITERAL.@"1") == .NUMBER);
+    std.debug.assert(left_left.LITERAL.@"1".NUMBER == 6.4);
+    const left_right = left.BINARY.@"1".right;
     std.debug.assert(std.meta.activeTag(left_right.*) == .LITERAL);
-    std.debug.assert(std.meta.activeTag(left_right.LITERAL) == .NUMBER);
-    std.debug.assert(left_right.LITERAL.NUMBER == 2.1);
-    const left_left_op = &res.BINARY.left.BINARY.operator;
+    std.debug.assert(std.meta.activeTag(left_right.LITERAL.@"1") == .NUMBER);
+    std.debug.assert(left_right.LITERAL.@"1".NUMBER == 2.1);
+    const left_left_op = &res.BINARY.@"1".left.BINARY.@"1".operator;
     std.debug.assert(std.meta.activeTag(left_left_op.*) == .SLASH);
-    const right = res.BINARY.right;
+    const right = res.BINARY.@"1".right;
     std.debug.assert(std.meta.activeTag(right.*) == .LITERAL);
-    std.debug.assert(std.meta.activeTag(right.LITERAL) == .NUMBER);
-    std.debug.assert(right.LITERAL.NUMBER == 3.0);
+    std.debug.assert(std.meta.activeTag(right.LITERAL.@"1") == .NUMBER);
+    std.debug.assert(right.LITERAL.@"1".NUMBER == 3.0);
 }
 
 test "overall parsing ternary" {
@@ -554,14 +571,14 @@ test "overall parsing ternary" {
     const res = parser.getAST() catch unreachable;
     defer res.deinit(parser.alloc);
     std.debug.assert(std.meta.activeTag(res.*) == .TERNARY);
-    const cond = res.TERNARY.cond;
+    const cond = res.TERNARY.@"1".cond;
     std.debug.assert(std.meta.activeTag(cond.*) == .BINARY);
-    const pos = res.TERNARY.pos;
+    const pos = res.TERNARY.@"1".pos;
     std.debug.assert(std.meta.activeTag(pos.*) == .LITERAL);
-    std.debug.assert(std.meta.activeTag(pos.LITERAL) == .NUMBER);
-    const neg = res.TERNARY.neg;
+    std.debug.assert(std.meta.activeTag(pos.LITERAL.@"1") == .NUMBER);
+    const neg = res.TERNARY.@"1".neg;
     std.debug.assert(std.meta.activeTag(neg.*) == .LITERAL);
-    std.debug.assert(std.meta.activeTag(neg.LITERAL) == .NUMBER);
+    std.debug.assert(std.meta.activeTag(neg.LITERAL.@"1") == .NUMBER);
 }
 
 test "error recovery ternary" {

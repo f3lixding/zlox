@@ -1,4 +1,6 @@
 const std = @import("std");
+const Location = @import("ast.zig").Location;
+
 pub const TokenType = enum {
     // Single character tokens:
     LEFT_PAREN,
@@ -252,6 +254,18 @@ pub const Token = union(TokenType) {
             },
         }
     }
+
+    pub fn getLocation(self: Token) Location {
+        switch (self) {
+            inline else => |inner_struct| {
+                std.debug.assert(@hasField(@TypeOf(inner_struct), "line"));
+                const line = inner_struct.line;
+                return .{
+                    .line = line,
+                };
+            },
+        }
+    }
 };
 
 test "test get lexeme" {
@@ -259,4 +273,10 @@ test "test get lexeme" {
     try std.testing.expectEqualStrings("hello", token.getLexeme().?);
     var token2 = Token{ .EQUAL = .{ .line = 0 } };
     try std.testing.expectEqualStrings("=", token2.getLexeme().?);
+}
+
+test "get location" {
+    const token = Token{ .IDENTIFIER = .{ .line = 0, .lexeme = "hello" } };
+    const location = token.getLocation();
+    std.debug.assert(location.line == 0);
 }
