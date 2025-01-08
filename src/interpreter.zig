@@ -215,7 +215,13 @@ pub const Interpreter = struct {
                     .PLUS => {
                         const left_tag = std.meta.activeTag(left);
                         const right_tag = std.meta.activeTag(right);
-                        if (left_tag != right_tag) return error.OperationNotSupported;
+                        if (left_tag != right_tag) {
+                            self.err = .{
+                                .err = error.OperationNotSupported,
+                                .expr = expr,
+                            };
+                            return error.OperationNotSupported;
+                        }
                         switch (left_tag) {
                             .NUMBER => {
                                 const left_num = left.NUMBER;
@@ -403,4 +409,31 @@ test "evaluate group" {
     var interpreter = Interpreter{};
     const eval_res = try interpreter.evaluate(&division_expr);
     std.debug.assert(eval_res.NUMBER == 3.4);
+}
+
+test "error reporting" {
+    var literal_num_expr_one = Expr{ .LITERAL = .{ .{}, Literal{ .STRING = "hello" } } };
+    var literal_num_expr_two = Expr{ .LITERAL = .{ .{}, Literal{ .NUMBER = 3.4 } } };
+    var addition_expr = Expr{ .BINARY = .{ .{
+        .line = 10,
+    }, .{
+        .left = &literal_num_expr_one,
+        .operator = .PLUS,
+        .right = &literal_num_expr_two,
+    } } };
+    var group_expr = Expr{ .GROUPING = .{ .{}, .{ .expr = &addition_expr } } };
+    var literal_num_expr_three = Expr{ .LITERAL = .{ .{}, Literal{ .NUMBER = 2.0 } } };
+    var division_expr = Expr{ .BINARY = .{ .{}, .{
+        .left = &group_expr,
+        .operator = .SLASH,
+        .right = &literal_num_expr_three,
+    } } };
+    var interpreter = Interpreter{};
+    const eval_res = interpreter.evaluate(&division_expr);
+    std.debug.assert(std.meta.isError(eval_res));
+    const err = interpreter.err;
+    std.debug.assert(err != null);
+    const err_ctx = err.?;
+    std.debug.assert(err_ctx.err == error.OperationNotSupported);
+    std.debug.assert(err_ctx.expr.BINARY.@"0".line == 10);
 }
