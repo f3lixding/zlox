@@ -20,6 +20,9 @@ pub const Interpreter = struct {
     // is with runtime reflection (i.e. use of instanceof).
     // This is not idiomatically Zig (and I also don't know if it's even possible in Zig). Thus I am opting for an
     // error union of Literal.
+    // We'll rely on the try operator for early return for faults that belong to the sub level evaluation.
+    // Only when we find faults / errors that belong to the current level do we examine what's going on and report
+    // the error.
     pub fn evaluate(self: *Interpreter, expr: *const Expr) InterpreterError!Literal {
         return switch (expr.*) {
             .LITERAL => |l| l.@"1",
@@ -27,7 +30,13 @@ pub const Interpreter = struct {
                 switch (u.@"1") {
                     .NEGATIVE => |inner_expr| {
                         const res = try self.evaluate(inner_expr);
-                        if (std.meta.activeTag(res) != .NUMBER) return error.OperationNotSupported;
+                        if (std.meta.activeTag(res) != .NUMBER) {
+                            self.err = .{
+                                .err = error.OperationNotSupported,
+                                .expr = inner_expr,
+                            };
+                            return error.OperationNotSupported;
+                        }
                         return Literal{ .NUMBER = -1 * res.NUMBER };
                     },
                     .NOT => |inner_expr| {
@@ -35,7 +44,13 @@ pub const Interpreter = struct {
                         return switch (res) {
                             .TRUE => Literal{ .FALSE = {} },
                             .FALSE, .NIL => Literal{ .TRUE = {} },
-                            else => error.OperationNotSupported,
+                            else => {
+                                self.err = .{
+                                    .err = error.OperationNotSupported,
+                                    .expr = inner_expr,
+                                };
+                                return error.OperationNotSupported;
+                            },
                         };
                     },
                 }
@@ -89,7 +104,13 @@ pub const Interpreter = struct {
                     .GREATER => {
                         const left_tag = std.meta.activeTag(left);
                         const right_tag = std.meta.activeTag(right);
-                        if (left_tag != right_tag) return error.OperationNotSupported;
+                        if (left_tag != right_tag) {
+                            self.err = .{
+                                .err = error.OperationNotSupported,
+                                .expr = expr,
+                            };
+                            return error.OperationNotSupported;
+                        }
                         switch (left_tag) {
                             .NUMBER => {
                                 const left_num = left.NUMBER;
@@ -97,13 +118,25 @@ pub const Interpreter = struct {
                                 if (left_num > right_num) return Literal{ .TRUE = {} };
                                 return Literal{ .FALSE = {} };
                             },
-                            .STRING, .TRUE, .FALSE, .NIL => return error.OperationNotSupported,
+                            .STRING, .TRUE, .FALSE, .NIL => {
+                                self.err = .{
+                                    .err = error.OperationNotSupported,
+                                    .expr = expr,
+                                };
+                                return error.OperationNotSupported;
+                            },
                         }
                     },
                     .GREATER_EQUAL => {
                         const left_tag = std.meta.activeTag(left);
                         const right_tag = std.meta.activeTag(right);
-                        if (left_tag != right_tag) return error.OperationNotSupported;
+                        if (left_tag != right_tag) {
+                            self.err = .{
+                                .err = error.OperationNotSupported,
+                                .expr = expr,
+                            };
+                            return error.OperationNotSupported;
+                        }
                         switch (left_tag) {
                             .NUMBER => {
                                 const left_num = left.NUMBER;
@@ -111,7 +144,13 @@ pub const Interpreter = struct {
                                 if (left_num >= right_num) return Literal{ .TRUE = {} };
                                 return Literal{ .FALSE = {} };
                             },
-                            .STRING, .TRUE, .FALSE, .NIL => return error.OperationNotSupported,
+                            .STRING, .TRUE, .FALSE, .NIL => {
+                                self.err = .{
+                                    .err = error.OperationNotSupported,
+                                    .expr = expr,
+                                };
+                                return error.OperationNotSupported;
+                            },
                         }
                     },
                     .LESS => {
@@ -125,7 +164,13 @@ pub const Interpreter = struct {
                                 if (left_num < right_num) return Literal{ .TRUE = {} };
                                 return Literal{ .FALSE = {} };
                             },
-                            .STRING, .TRUE, .FALSE, .NIL => return error.OperationNotSupported,
+                            .STRING, .TRUE, .FALSE, .NIL => {
+                                self.err = .{
+                                    .err = error.OperationNotSupported,
+                                    .expr = expr,
+                                };
+                                return error.OperationNotSupported;
+                            },
                         }
                     },
                     .LESS_EQUAL => {
@@ -139,7 +184,13 @@ pub const Interpreter = struct {
                                 if (left_num <= right_num) return Literal{ .TRUE = {} };
                                 return Literal{ .FALSE = {} };
                             },
-                            .STRING, .TRUE, .FALSE, .NIL => return error.OperationNotSupported,
+                            .STRING, .TRUE, .FALSE, .NIL => {
+                                self.err = .{
+                                    .err = error.OperationNotSupported,
+                                    .expr = expr,
+                                };
+                                return error.OperationNotSupported;
+                            },
                         }
                     },
                     .MINUS => {
@@ -152,7 +203,13 @@ pub const Interpreter = struct {
                                 const right_num = right.NUMBER;
                                 return Literal{ .NUMBER = left_num - right_num };
                             },
-                            .STRING, .TRUE, .FALSE, .NIL => return error.OperationNotSupported,
+                            .STRING, .TRUE, .FALSE, .NIL => {
+                                self.err = .{
+                                    .err = error.OperationNotSupported,
+                                    .expr = expr,
+                                };
+                                return error.OperationNotSupported;
+                            },
                         }
                     },
                     .PLUS => {
@@ -167,7 +224,13 @@ pub const Interpreter = struct {
                             },
                             // I had deliberately left out the string concatenation for plus operator
                             // TODO: implement an operator for string concatenation
-                            .STRING, .TRUE, .FALSE, .NIL => return error.OperationNotSupported,
+                            .STRING, .TRUE, .FALSE, .NIL => {
+                                self.err = .{
+                                    .err = error.OperationNotSupported,
+                                    .expr = expr,
+                                };
+                                return error.OperationNotSupported;
+                            },
                         }
                     },
                     .SLASH => {
@@ -180,7 +243,13 @@ pub const Interpreter = struct {
                                 const right_num = right.NUMBER;
                                 return Literal{ .NUMBER = left_num / right_num };
                             },
-                            .STRING, .TRUE, .FALSE, .NIL => return error.OperationNotSupported,
+                            .STRING, .TRUE, .FALSE, .NIL => {
+                                self.err = .{
+                                    .err = error.OperationNotSupported,
+                                    .expr = expr,
+                                };
+                                return error.OperationNotSupported;
+                            },
                         }
                     },
                     .STAR => {
@@ -193,7 +262,13 @@ pub const Interpreter = struct {
                                 const right_num = right.NUMBER;
                                 return Literal{ .NUMBER = left_num * right_num };
                             },
-                            .STRING, .TRUE, .FALSE, .NIL => return error.OperationNotSupported,
+                            .STRING, .TRUE, .FALSE, .NIL => {
+                                self.err = .{
+                                    .err = error.OperationNotSupported,
+                                    .expr = expr,
+                                };
+                                return error.OperationNotSupported;
+                            },
                         }
                     },
                     .COMMA => return error.OperationNotSupported,
