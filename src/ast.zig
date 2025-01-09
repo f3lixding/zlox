@@ -104,6 +104,15 @@ pub const Expr = union(ExprType) {
         defer alloc.free(repr);
         std.debug.print("{s}\n", .{repr});
     }
+
+    pub fn getLocation(self: Expr) Location {
+        return switch (self) {
+            inline else => |inner_struct| {
+                const location: Location = inner_struct.@"0";
+                return location;
+            },
+        };
+    }
 };
 
 pub const Literal = union(enum) {
@@ -259,4 +268,11 @@ test "deinit" {
     expr_unary.* = Expr{ .UNARY = .{ .{}, unary_not_true } };
     // This should not error out
     expr_unary.deinit(alloc);
+}
+
+test "get location" {
+    const literal_true = Literal{ .TRUE = {} };
+    var literal_true_expr = Expr{ .LITERAL = .{ .{ .line = 10 }, literal_true } };
+    const location = literal_true_expr.getLocation();
+    std.debug.assert(location.line == 10);
 }

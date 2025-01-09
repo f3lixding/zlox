@@ -15,6 +15,14 @@ pub const InterpreterErrorCtx = struct {
 pub const Interpreter = struct {
     err: ?InterpreterErrorCtx = null,
 
+    // TODO: enrich the info contained in the error returned by this function
+    pub fn reportRunTimeError(self: Interpreter, alloc: std.mem.Allocator) !?[]const u8 {
+        if (self.err) |err| {
+            const line = err.expr.getLocation().line;
+            return try std.fmt.allocPrint(alloc, "Encountered an error on line {d}\n", .{line});
+        } else return null;
+    }
+
     // In the book (the java section), the return of evaluate is an Object. This is because the interpreter's design
     // is to return an unified type and during runtime, the interpreter will sort out what type the Object actually
     // is with runtime reflection (i.e. use of instanceof).
@@ -436,4 +444,10 @@ test "error reporting" {
     const err_ctx = err.?;
     std.debug.assert(err_ctx.err == error.OperationNotSupported);
     std.debug.assert(err_ctx.expr.BINARY.@"0".line == 10);
+    const alloc = std.testing.allocator;
+    const formatted_err = try interpreter.reportRunTimeError(alloc);
+    if (formatted_err) |formatted_error| {
+        defer alloc.free(formatted_error);
+        std.debug.assert(std.mem.eql(u8, formatted_err.?, "Encountered an error on line 10\n"));
+    } else unreachable;
 }
