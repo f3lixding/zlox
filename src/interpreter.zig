@@ -5,6 +5,7 @@ const Token = @import("token.zig").Token;
 
 pub const InterpreterError = error{
     OperationNotSupported,
+    DivisionByZero,
 };
 
 pub const InterpreterErrorCtx = struct {
@@ -255,6 +256,13 @@ pub const Interpreter = struct {
                             .NUMBER => {
                                 const left_num = left.NUMBER;
                                 const right_num = right.NUMBER;
+                                if (right_num == 0) {
+                                    self.err = .{
+                                        .err = error.DivisionByZero,
+                                        .expr = expr,
+                                    };
+                                    return error.DivisionByZero;
+                                }
                                 return Literal{ .NUMBER = left_num / right_num };
                             },
                             .STRING, .TRUE, .FALSE, .NIL => {
