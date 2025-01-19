@@ -142,6 +142,16 @@ pub const Literal = union(enum) {
             else => {},
         }
     }
+
+    pub fn getPrintableRepr(self: Literal, alloc: std.mem.Allocator) ![]const u8 {
+        return switch (self) {
+            .NUMBER => |n| try std.fmt.allocPrint(alloc, "{d}\n", .{n}),
+            .STRING => |s| try std.fmt.allocPrint(alloc, "\"{s}\"\n", .{s}),
+            .TRUE => try std.fmt.allocPrint(alloc, "true\n", .{}),
+            .FALSE => try std.fmt.allocPrint(alloc, "false\n", .{}),
+            .NIL => try std.fmt.allocPrint(alloc, "nil\n", .{}),
+        };
+    }
 };
 
 pub const Grouping = struct {
@@ -218,6 +228,11 @@ pub const Operator = union(enum) {
             else => unreachable,
         };
     }
+};
+
+pub const Statement = union(enum) {
+    EXPR: *Expr,
+    PRINT: *Expr,
 };
 
 test "pretty print test" {

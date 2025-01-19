@@ -2,10 +2,17 @@ const std = @import("std");
 const Literal = @import("ast.zig").Literal;
 const Expr = @import("ast.zig").Expr;
 const Token = @import("token.zig").Token;
+const Statement = @import("ast.zig").Statement;
+const RefinedWriter = @import("refined_writer.zig").RefinedWriter;
 
 pub const InterpreterError = error{
     OperationNotSupported,
     DivisionByZero,
+    PrintError,
+} || WriteError;
+
+pub const WriteError = error{
+    UnderlyingWriteError,
 };
 
 pub const InterpreterErrorCtx = struct {
@@ -15,6 +22,27 @@ pub const InterpreterErrorCtx = struct {
 
 pub const Interpreter = struct {
     err: ?InterpreterErrorCtx = null,
+    alloc: std.mem.Allocator,
+    // we need to make an interface for this
+    writer: ?RefinedWriter = null,
+
+    pub fn init(
+        writer: RefinedWriter,
+        alloc: std.mem.Allocator,
+    ) Interpreter {
+        return .{
+            .alloc = alloc,
+            .writer = writer,
+        };
+    }
+
+    pub fn write(self: *Interpreter, bytes: []const u8) WriteError!usize {
+        if (self.writer) |*writer| {
+            writer.writeAll(bytes) catch return WriteError.UnderlyingWriteError;
+            return bytes.len;
+        }
+        return 0;
+    }
 
     // TODO: enrich the info contained in the error returned by this function
     pub fn reportRunTimeError(self: Interpreter, alloc: std.mem.Allocator) !?[]const u8 {
@@ -22,6 +50,22 @@ pub const Interpreter = struct {
             const line = err.expr.getLocation().line;
             return try std.fmt.allocPrint(alloc, "Encountered an error on line {d}\n", .{line});
         } else return null;
+    }
+
+    pub fn evaluateStmt(self: *Interpreter, stmt: *const Statement) InterpreterError!?Literal {
+        var literal_return: ?Literal = null;
+        switch (stmt.*) {
+            .PRINT => |expr| {
+                const literal = try self.evaluate(expr);
+                const printable_repr = literal.getPrintableRepr(self.alloc) catch return InterpreterError.PrintError;
+                defer self.alloc.free(printable_repr);
+                _ = try write(self, printable_repr);
+            },
+            .EXPR => |expr| {
+                literal_return = try self.evaluate(expr);
+            },
+        }
+        return literal_return;
     }
 
     // In the book (the java section), the return of evaluate is an Object. This is because the interpreter's design
@@ -325,7 +369,7 @@ test "evaluate binary" {
     // Evaluating just the literal should return the literal
     const literal_string = Literal{ .STRING = "hello" };
     var string_expr = Expr{ .LITERAL = .{ .{}, literal_string } };
-    var interpreter = Interpreter{};
+    var interpreter = Interpreter{ .alloc = std.testing.allocator };
     var eval_res = try interpreter.evaluate(&string_expr);
     std.debug.assert(std.mem.eql(u8, eval_res.STRING, "hello"));
     // Evaluating a binary expr that compares two things that are the same
@@ -365,7 +409,7 @@ test "evaluate unary" {
         .{},
         .{ .NEGATIVE = &literal_number_expr },
     } };
-    var interpreter = Interpreter{};
+    var interpreter = Interpreter{ .alloc = std.testing.allocator };
     var eval_res = try interpreter.evaluate(&neg_number_expr);
     std.debug.assert(std.meta.activeTag(eval_res) == .NUMBER);
     std.debug.assert(eval_res.NUMBER == -3.4);
@@ -402,7 +446,7 @@ test "evaluate ternary" {
         .neg = &tern_right_expr,
         .cond = &tern_cond_expr,
     } } };
-    var interpreter = Interpreter{};
+    var interpreter = Interpreter{ .alloc = std.testing.allocator };
     const eval_res = try interpreter.evaluate(&tern_expr);
     std.debug.assert(eval_res.NUMBER == 2.0);
 }
@@ -422,7 +466,7 @@ test "evaluate group" {
         .operator = .SLASH,
         .right = &literal_num_expr_three,
     } } };
-    var interpreter = Interpreter{};
+    var interpreter = Interpreter{ .alloc = std.testing.allocator };
     const eval_res = try interpreter.evaluate(&division_expr);
     std.debug.assert(eval_res.NUMBER == 3.4);
 }
@@ -444,7 +488,7 @@ test "error reporting" {
         .operator = .SLASH,
         .right = &literal_num_expr_three,
     } } };
-    var interpreter = Interpreter{};
+    var interpreter = Interpreter{ .alloc = std.testing.allocator };
     const eval_res = interpreter.evaluate(&division_expr);
     std.debug.assert(std.meta.isError(eval_res));
     const err = interpreter.err;
@@ -458,4 +502,35 @@ test "error reporting" {
         defer alloc.free(formatted_error);
         std.debug.assert(std.mem.eql(u8, formatted_err.?, "Encountered an error on line 10\n"));
     } else unreachable;
+}
+
+test "print literal" {
+    const Storage = struct {
+        alloc: std.mem.Allocator,
+        storage: std.ArrayList(u8),
+        pub fn init(alloc: std.mem.Allocator) @This() {
+            return .{
+                .alloc = alloc,
+                .storage = std.ArrayList(u8).init(alloc),
+            };
+        }
+        pub fn deinit(self: @This()) void {
+            self.storage.deinit();
+        }
+        pub fn writeAll(self: *@This(), bytes: []const u8) anyerror!void {
+            try self.storage.appendSlice(bytes);
+        }
+        pub fn writer(self: *@This()) RefinedWriter {
+            return RefinedWriter.init(self);
+        }
+    };
+    const literal_string = Literal{ .STRING = "hello" };
+    var string_expr = Expr{ .LITERAL = .{ .{}, literal_string } };
+    const print_stmt = Statement{ .PRINT = &string_expr };
+    var storage = Storage.init(std.testing.allocator);
+    defer storage.deinit();
+    const writer = storage.writer();
+    var interpreter = Interpreter.init(writer, std.testing.allocator);
+    const res = try interpreter.evaluateStmt(&print_stmt);
+    std.debug.assert(res == null);
 }

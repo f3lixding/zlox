@@ -5,9 +5,11 @@ const Expr = @import("ast.zig").Expr;
 const Operator = @import("ast.zig").Operator;
 const Literal = @import("ast.zig").Literal;
 const Location = @import("ast.zig").Location;
+const Statement = @import("ast.zig").Statement;
 
 pub const ParsingError = error{
     MalformedBuffer,
+    MissingSemicolon,
 } || std.mem.Allocator.Error || std.fmt.ParseFloatError || GroupParsingError || TernaryParsingError || BinaryExprParsingError;
 
 pub const GroupParsingError = error{MissingParen};
@@ -28,7 +30,6 @@ pub const ParsingErrorCtx = struct {
 // Parser takes a list of tokens and produces ast
 // The composition of the functions is the embodiment of the the following grammar:
 //
-// Or, with the addition of ternary:
 // expression     → ternary ;
 // ternary        → equality ( "?" equality ":" equality )? ;
 // equality       → comparison ( ( "!=" | "==" ) comparison )* ;
@@ -67,6 +68,16 @@ pub const Parser = struct {
         };
     }
 
+    // This is the main parsing function
+    pub fn parse(self: *Parser) !std.ArrayList(Statement) {
+        var res = std.ArrayList(Statement).init();
+        while (self.cur_idx < self.tokens.items.len) {
+            const stmt = try self.statement();
+            res.append(stmt);
+        }
+        return res;
+    }
+
     pub fn getAST(self: *Parser) !*Expr {
         const expr = try self.expression();
         return expr;
@@ -75,6 +86,18 @@ pub const Parser = struct {
     pub fn deinit(self: *Parser) void {
         self.tokens.deinit();
         self.errors.deinit();
+    }
+
+    fn statement(self: *Parser) !Statement {
+        if (self.match(.PRINT)) |_| {
+            const expr = try self.expression();
+            self.match(.SEMICOLON) orelse return error.MissingSemicolon;
+            return Statement{ .PRINT = expr };
+        } else {
+            const expr = try self.expression();
+            self.match(.SEMICOLON) orelse return error.MissingSemicolon;
+            return Statement{ .EXPR = expr };
+        }
     }
 
     fn expression(self: *Parser) !*Expr {
@@ -105,19 +128,21 @@ pub const Parser = struct {
         if (self.match(&[_]TokenType{.QUESTION_MARK})) |question_mark_token| ques_mark_blk: {
             if (cond_res) |expr| {
                 const pos_expr_res = self.equality();
-                if (pos_expr_res) |pos_expr| {
-                    errdefer pos_expr.deinit(self.alloc);
-                } else |err| {
-                    if (rule_lvl_err == null) {
+                errdefer if (pos_expr_res) |pos_expr| {
+                    pos_expr.deinit(self.alloc);
+                } else |_| {};
+                if (std.meta.isError(pos_expr_res) and rule_lvl_err == null) {
+                    if (pos_expr_res) |_| {} else |err| {
                         rule_lvl_err = err;
                     }
                 }
                 if (self.match(&[_]TokenType{.COLON})) |_| {
                     const neg_expr_res = self.equality();
-                    if (neg_expr_res) |neg_expr| {
-                        errdefer neg_expr.deinit(self.alloc);
-                    } else |err| {
-                        if (rule_lvl_err == null) {
+                    errdefer if (pos_expr_res) |pos_expr| {
+                        pos_expr.deinit(self.alloc);
+                    } else |_| {};
+                    if (std.meta.isError(neg_expr_res) and rule_lvl_err == null) {
+                        if (neg_expr_res) |_| {} else |err| {
                             rule_lvl_err = err;
                         }
                     }
@@ -609,29 +634,3 @@ test "error recovery ternary" {
     const err = &parser.errors.items[0];
     std.debug.assert(std.meta.activeTag(err.token.*) == .QUESTION_MARK);
 }
-
-//test "error recovery binary" {
-//const alloc = std.testing.allocator;
-//const tokens = std.ArrayList(Token).init(alloc);
-//defer tokens.deinit();
-//const errors = std.ArrayList(ParsingErrorCtx).init(alloc);
-//defer errors.deinit();
-//var parser = Parser{
-//.alloc = alloc,
-//.errors = errors,
-//.tokens = tokens,
-//};
-//const test_tokens = [_]Token{
-//Token{ .NUMBER = .{ .line = 0, .lexeme = "1.1" } },
-//};
-//parser.tokens.appendSlice(&test_tokens) catch unreachable;
-//defer parser.deinit();
-//const res = parser.getAST();
-//if (res) |ast| {
-//defer ast.deinit(parser.alloc);
-//} else |_| {}
-//std.debug.assert(res == error.TernaryMissingCond);
-//std.debug.assert(parser.errors.items.len > 0);
-//const err = &parser.errors.items[0];
-//std.debug.assert(std.meta.activeTag(err.token.*) == .QUESTION_MARK);
-//}
