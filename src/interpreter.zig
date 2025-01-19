@@ -533,4 +533,5 @@ test "print literal" {
     var interpreter = Interpreter.init(writer, std.testing.allocator);
     const res = try interpreter.evaluateStmt(&print_stmt);
     std.debug.assert(res == null);
+    std.debug.assert(std.mem.eql(u8, "\"hello\"\n", storage.storage.items));
 }

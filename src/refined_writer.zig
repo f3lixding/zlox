@@ -7,6 +7,8 @@ const std = @import("std");
 // On a high level, I want this interface to achieve the following:
 // - hide the writing behavior from the Interpreter associated.
 // - not have any type specific information in the interface.
+// The only downside is that this interface cannot be generic over the type of things to be written.
+// This is because I do not wish the generalness to be leaked to the type that depends on this interface.
 pub const RefinedWriter = struct {
     // This is the context pointer, where it writes to.
     ptr: *anyopaque,
