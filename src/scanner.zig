@@ -11,12 +11,12 @@ pub const Scanner = struct {
     start: usize = 0,
     current: usize = 0,
     line: usize = 0,
-    tokens: std.ArrayList(Token) = undefined,
+    tokens: ?std.ArrayList(Token) = null,
     // This is a managed struct
     alloc: std.mem.Allocator,
     src_buf: ?[]const u8 = null,
 
-    pub fn init(self: *Scanner, comptime src_path: []const u8, max_bytes: usize) !void {
+    pub fn init(self: *Scanner, src_path: []const u8, max_bytes: usize) !void {
         self.tokens = std.ArrayList(Token).init(self.alloc);
         if (std.mem.endsWith(u8, src_path, ".lox")) {
             self.src_buf = try std.fs.cwd().readFileAlloc(self.alloc, src_path, max_bytes);
@@ -27,7 +27,7 @@ pub const Scanner = struct {
     }
 
     pub fn deinit(self: *Scanner) void {
-        self.tokens.deinit();
+        if (self.tokens) |tokens| tokens.deinit();
         if (self.src_buf) |buf| self.alloc.free(buf);
     }
 
@@ -285,7 +285,7 @@ pub const Scanner = struct {
     }
 
     fn addToken(self: *Scanner, token: Token) std.mem.Allocator.Error!void {
-        return self.tokens.append(token);
+        return self.tokens.?.append(token);
     }
 };
 
@@ -349,7 +349,7 @@ test "parse single character token" {
 
     var res_map = std.StringHashMap(i32).init(std.testing.allocator);
     defer res_map.deinit();
-    for (scanner.tokens.items) |*token| {
+    for (scanner.tokens.?.items) |*token| {
         const lexeme = token.getLexeme() orelse continue;
         const entry = try res_map.getOrPut(lexeme);
         if (entry.found_existing) {
@@ -384,7 +384,7 @@ test "parse string token" {
         if (scanner.isEOF()) break;
     }
 
-    for (scanner.tokens.items) |*token| {
+    for (scanner.tokens.?.items) |*token| {
         std.debug.assert(token.* == .STRING);
         const lexeme = token.getLexeme() orelse continue;
         std.debug.assert(std.mem.eql(u8, lexeme, "short string") or std.mem.eql(u8, lexeme, "this is a slightly longer string"));
@@ -411,7 +411,7 @@ test "parse number token" {
         };
         if (scanner.isEOF()) break;
     }
-    for (scanner.tokens.items) |*token| {
+    for (scanner.tokens.?.items) |*token| {
         std.debug.assert(token.* == .NUMBER);
         const lexeme = token.getLexeme() orelse continue;
         std.debug.assert(std.mem.eql(u8, lexeme, "1") or
@@ -440,7 +440,7 @@ test "keywords and identifiers" {
         if (scanner.isEOF()) break;
     }
 
-    for (scanner.tokens.items) |*token| {
+    for (scanner.tokens.?.items) |*token| {
         const lexeme = token.getLexeme() orelse continue;
         std.debug.assert(std.mem.eql(u8, lexeme, "and") or
             std.mem.eql(u8, lexeme, "class") or

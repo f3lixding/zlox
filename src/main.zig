@@ -4,6 +4,7 @@ const Parser = @import("parser.zig").Parser;
 const Token = @import("token.zig").Token;
 const Interpreter = @import("interpreter.zig").Interpreter;
 const StdOutWriter = @import("refined_writer.zig").StdOutWriter;
+const Scanner = @import("scanner.zig").Scanner;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -26,23 +27,35 @@ pub fn main() !void {
         // We will for now only take into consideration the first arg (index 1)
     }
 
-    const tokens = scan_files(allocator, args[1]);
+    var scanner = Scanner{ .alloc = allocator };
+    defer scanner.deinit();
+    try scanner.init(args[1], 10000);
+    while (!scanner.isEOF()) {
+        try scanner.scanTokens();
+    }
     var parser = Parser.init(allocator);
-    const stdout_writer = StdOutWriter{};
-    var interpreter = Interpreter.init(stdout_writer, allocator);
-    parser.tokens = tokens;
-    if (parser.parse()) |stmts| {
-        for (stmts.items) |stmt| {
-            try interpreter.evaluateStmt(stmt);
+    defer parser.deinit();
+    var stdout_writer = StdOutWriter{};
+    const stdout_writer_writer = stdout_writer.writer();
+    var interpreter = Interpreter.init(stdout_writer_writer, allocator);
+    parser.tokens = scanner.tokens.?;
+    scanner.tokens = null;
+    const parse_res = parser.parse();
+    if (parse_res) |*stmts| {
+        defer stmts.deinit();
+        defer for (stmts.items) |stmt| {
+            stmt.deinit(parser.alloc);
+        };
+        for (stmts.items) |*stmt| {
+            const res = try interpreter.evaluateStmt(stmt);
+            if (res) |val| {
+                const printable_repr = try val.getPrintableRepr(allocator);
+                defer allocator.free(printable_repr);
+                std.debug.print("Result: {s}\n", .{printable_repr});
+            }
         }
     } else |err| {
-        std.debug.print("Error: {s}\n", .{err});
+        std.debug.print("Error: {!}\n", .{err});
     }
-}
-
-// TODO: implement
-fn scan_files(alloc: std.mem.Allocator, comptime src_path: []const u8) std.ArrayList(Token) {
-    _ = alloc;
-    _ = src_path;
-    return undefined;
+    std.debug.print("Done\n", .{});
 }

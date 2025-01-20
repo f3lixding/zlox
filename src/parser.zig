@@ -30,6 +30,15 @@ pub const ParsingErrorCtx = struct {
 // Parser takes a list of tokens and produces ast
 // The composition of the functions is the embodiment of the the following grammar:
 //
+//
+// program        → statement* EOF ;
+// declaration    → varDecl
+//                | statement ;
+// varDecl        → "var" IDENTIFIER ( "=" expression )? ";" ;
+// statement      → exprStmt
+//                | printStmt ;
+// exprStmt       → expression ";" ;
+// printStmt      → "print" expression ";" ;
 // expression     → ternary ;
 // ternary        → equality ( "?" equality ":" equality )? ;
 // equality       → comparison ( ( "!=" | "==" ) comparison )* ;
@@ -39,7 +48,8 @@ pub const ParsingErrorCtx = struct {
 // unary          → ( "!" | "-" ) unary
 //                | primary ;
 // primary        → NUMBER | STRING | "true" | "false" | "nil"
-//                | "(" expression ")" ;
+//                | "(" expression ")"
+//                | IDENTIFIER ;
 //
 // Some things to note here:
 // - This parser has left associativity. This means that in a series of the same operator,
@@ -70,10 +80,16 @@ pub const Parser = struct {
 
     // This is the main parsing function
     pub fn parse(self: *Parser) !std.ArrayList(Statement) {
-        var res = std.ArrayList(Statement).init();
+        var res = std.ArrayList(Statement).init(self.alloc);
+        errdefer for (res.items) |stmt| {
+            std.debug.print("Deiniting statement\n", .{});
+            stmt.deinit(self.alloc);
+        };
+        errdefer res.deinit();
         while (self.cur_idx < self.tokens.items.len) {
             const stmt = try self.statement();
-            res.append(stmt);
+            errdefer stmt.deinit(self.alloc);
+            try res.append(stmt);
         }
         return res;
     }
@@ -89,13 +105,19 @@ pub const Parser = struct {
     }
 
     fn statement(self: *Parser) !Statement {
-        if (self.match(.PRINT)) |_| {
+        if (self.match(&[_]TokenType{.PRINT})) |_| {
             const expr = try self.expression();
-            self.match(.SEMICOLON) orelse return error.MissingSemicolon;
+            errdefer expr.deinit(self.alloc);
+            _ = self.match(&[_]TokenType{.SEMICOLON}) orelse return error.MissingSemicolon;
             return Statement{ .PRINT = expr };
         } else {
             const expr = try self.expression();
-            self.match(.SEMICOLON) orelse return error.MissingSemicolon;
+            errdefer expr.deinit(self.alloc);
+            const printable = try expr.getPrintableRepr(self.alloc);
+            defer self.alloc.free(printable);
+            std.debug.print("{s}\n", .{printable});
+            std.debug.print("token len: {d}\n", .{self.tokens.items.len});
+            _ = self.match(&[_]TokenType{.SEMICOLON}) orelse return error.MissingSemicolon;
             return Statement{ .EXPR = expr };
         }
     }
@@ -213,10 +235,12 @@ pub const Parser = struct {
             return rule_lvl_err.?;
         }
         var left = self.comparison();
+        errdefer if (left) |left_expr| {
+            left_expr.deinit(self.alloc);
+        } else |_| {};
         while (self.match(&match_input)) |op| {
             const right = self.comparison();
             if (left) |left_expr| {
-                errdefer left_expr.deinit(self.alloc);
                 if (right) |right_expr| {
                     errdefer right_expr.deinit(self.alloc);
                     const operator = try Operator.fromToken(op.*);

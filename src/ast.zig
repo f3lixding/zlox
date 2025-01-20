@@ -233,6 +233,13 @@ pub const Operator = union(enum) {
 pub const Statement = union(enum) {
     EXPR: *Expr,
     PRINT: *Expr,
+
+    pub fn deinit(self: Statement, alloc: std.mem.Allocator) void {
+        switch (self) {
+            .EXPR => |expr| expr.deinit(alloc),
+            .PRINT => |expr| expr.deinit(alloc),
+        }
+    }
 };
 
 test "pretty print test" {
