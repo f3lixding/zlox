@@ -36,6 +36,18 @@ pub const RefinedWriter = struct {
     }
 };
 
+pub const StdOutWriter = struct {
+    fd: std.posix.fd_t = std.posix.STDOUT_FILENO,
+
+    pub fn writeAll(self: *StdOutWriter, bytes: []const u8) anyerror!void {
+        _ = try std.posix.write(self.fd, bytes);
+    }
+
+    pub fn writer(self: *StdOutWriter) RefinedWriter {
+        return RefinedWriter.init(self);
+    }
+};
+
 test "writer interface" {
     const TEST_STR = "this is a test string";
     const Storage = struct {
