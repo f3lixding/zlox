@@ -104,6 +104,7 @@ pub const Parser = struct {
         self.errors.deinit();
     }
 
+    // TODO: implement this
     fn declaration(self: *Parser) void {
         _ = self;
     }
