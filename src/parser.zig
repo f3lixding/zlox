@@ -31,7 +31,7 @@ pub const ParsingErrorCtx = struct {
 // The composition of the functions is the embodiment of the the following grammar:
 //
 //
-// program        → statement* EOF ;
+// program        → declaration* EOF ;
 // declaration    → varDecl
 //                | statement ;
 // varDecl        → "var" IDENTIFIER ( "=" expression )? ";" ;
@@ -104,6 +104,11 @@ pub const Parser = struct {
         self.errors.deinit();
     }
 
+    fn declaration(self: *Parser) void {
+        _ = self;
+    }
+
+    // This is currently the main entry point
     fn statement(self: *Parser) !Statement {
         if (self.match(&[_]TokenType{.PRINT})) |_| {
             const expr = try self.expression();

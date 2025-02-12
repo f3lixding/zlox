@@ -64,6 +64,10 @@ pub const Interpreter = struct {
             .EXPR => |expr| {
                 literal_return = try self.evaluate(expr);
             },
+            .VAR => |var_stmt| {
+                // TODO: implement variable declaration
+                _ = var_stmt;
+            },
         }
         return literal_return;
     }
@@ -347,6 +351,11 @@ pub const Interpreter = struct {
                 const neg = t.@"1".neg;
                 const cond_res = try self.evaluate(cond);
                 return if (isTruthy(cond_res)) try self.evaluate(pos) else try self.evaluate(neg);
+            },
+            .IDENTIFIER => |i| {
+                // TODO: implement variable declaration
+                _ = i;
+                unreachable;
             },
         };
     }
