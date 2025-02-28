@@ -352,7 +352,7 @@ pub const Interpreter = struct {
                 const cond_res = try self.evaluate(cond);
                 return if (isTruthy(cond_res)) try self.evaluate(pos) else try self.evaluate(neg);
             },
-            .IDENTIFIER => |i| {
+            .VARIABLE => |i| {
                 // TODO: implement variable declaration
                 _ = i;
                 unreachable;

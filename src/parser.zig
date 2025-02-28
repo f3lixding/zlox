@@ -6,6 +6,7 @@ const Operator = @import("ast.zig").Operator;
 const Literal = @import("ast.zig").Literal;
 const Location = @import("ast.zig").Location;
 const Statement = @import("ast.zig").Statement;
+const VarDecl = @import("ast.zig").VarDecl;
 
 pub const ParsingError = error{
     MalformedBuffer,
@@ -87,9 +88,9 @@ pub const Parser = struct {
         };
         errdefer res.deinit();
         while (self.cur_idx < self.tokens.items.len) {
-            const stmt = try self.statement();
-            errdefer stmt.deinit(self.alloc);
-            try res.append(stmt);
+            if (self.declaration()) |stmt| {
+                try res.append(stmt);
+            }
         }
         return res;
     }
@@ -104,12 +105,40 @@ pub const Parser = struct {
         self.errors.deinit();
     }
 
-    // TODO: implement this
-    fn declaration(self: *Parser) void {
-        _ = self;
+    // This is currently the main entry point
+    fn declaration(self: *Parser) ?Statement {
+        const stmt_res =
+            if (self.match(&[_]TokenType{.VAR})) |_|
+            self.varDecl()
+        else
+            self.statement();
+
+        if (stmt_res) |stmt| {
+            return stmt;
+        } else |_| {
+            self.synchronize();
+            return null;
+        }
     }
 
-    // This is currently the main entry point
+    fn varDecl(self: *Parser) !Statement {
+        // It should be okay to not worry about this if we error out
+        // This is because while the list of tokens are owned by the parser, the `match` is does not require allocation
+        const name = self.match(&[_]TokenType{.IDENTIFIER}) orelse return error.MalformedBuffer;
+        const initializer: ?*Expr = if (self.match(&[_]TokenType{.EQUAL})) |_|
+            try self.expression()
+        else
+            null;
+        const name_str = try self.alloc.dupe(u8, name.getLexeme().?);
+        errdefer self.alloc.free(name_str);
+        const var_decl = try self.alloc.create(VarDecl);
+        var_decl.* = .{
+            .name = name_str,
+            .initializer = initializer,
+        };
+        return Statement{ .VAR = var_decl };
+    }
+
     fn statement(self: *Parser) !Statement {
         if (self.match(&[_]TokenType{.PRINT})) |_| {
             const expr = try self.expression();
@@ -119,10 +148,6 @@ pub const Parser = struct {
         } else {
             const expr = try self.expression();
             errdefer expr.deinit(self.alloc);
-            const printable = try expr.getPrintableRepr(self.alloc);
-            defer self.alloc.free(printable);
-            std.debug.print("{s}\n", .{printable});
-            std.debug.print("token len: {d}\n", .{self.tokens.items.len});
             _ = self.match(&[_]TokenType{.SEMICOLON}) orelse return error.MissingSemicolon;
             return Statement{ .EXPR = expr };
         }
@@ -512,6 +537,7 @@ pub const Parser = struct {
                 .WHILE => |_| {},
                 .PRINT => |_| {},
                 .RETURN => |_| {},
+                else => |_| {}, // TODO: add logic here to handle this specifically
             }
         }
     }

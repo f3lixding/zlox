@@ -12,7 +12,7 @@ pub const ExprType = enum {
     BINARY,
     GROUPING,
     TERNARY,
-    IDENTIFIER,
+    VARIABLE,
 };
 
 pub const Expr = union(ExprType) {
@@ -21,7 +21,7 @@ pub const Expr = union(ExprType) {
     BINARY: struct { Location, Binary },
     GROUPING: struct { Location, Grouping },
     TERNARY: struct { Location, Ternary },
-    IDENTIFIER: struct { Location, VarDecl },
+    VARIABLE: struct { Location, VarDecl },
 
     // This might not be the most idiomatic way of writing deinit (most of the deinit I see do not require args)
     // Also we have a deinit routine without an init routine.
@@ -98,7 +98,7 @@ pub const Expr = union(ExprType) {
                 defer alloc.free(condition);
                 return try std.fmt.allocPrint(alloc, "cond: {s}\npos: {s}\nneg: {s}", .{ condition, pos_output, neg_output });
             },
-            .IDENTIFIER => |identifier| {
+            .VARIABLE => |identifier| {
                 const decl: VarDecl = identifier.@"1";
                 return try std.fmt.allocPrint(alloc, "{s}", .{decl.name});
             },
@@ -239,6 +239,8 @@ pub const Operator = union(enum) {
 pub const Statement = union(enum) {
     EXPR: *Expr,
     PRINT: *Expr,
+    // This is a special field.
+    // We could just put an Expr here but it will have to be a VarDecl anyway (VarDecl is also an Expr).
     VAR: *VarDecl,
 
     pub fn deinit(self: Statement, alloc: std.mem.Allocator) void {
@@ -252,7 +254,7 @@ pub const Statement = union(enum) {
 
 pub const VarDecl = struct {
     name: []const u8,
-    initializer: *Expr,
+    initializer: ?*Expr,
 
     pub fn deinit(self: VarDecl, alloc: std.mem.Allocator) void {
         alloc.free(self.name);
