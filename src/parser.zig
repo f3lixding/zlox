@@ -469,7 +469,6 @@ pub const Parser = struct {
         return self.primary();
     }
 
-    // TODO: enable parsing of identifier
     fn primary(self: *Parser) ParsingError!*Expr {
         const res = try self.alloc.create(Expr);
         errdefer self.alloc.destroy(res);
@@ -485,6 +484,20 @@ pub const Parser = struct {
                 .NUMBER, .STRING => Expr{ .LITERAL = .{ token.getLocation(), try Literal.fromToken(self.alloc, token) } },
                 else => unreachable,
             };
+            return res;
+        }
+        if (self.match(&[_]TokenType{.IDENTIFIER})) |token| {
+            const initializer: ?*Expr = if (self.match(&[_]TokenType{.EQUAL})) |_|
+                try self.expression()
+            else
+                null;
+            const name_str = try self.alloc.dupe(u8, token.getLexeme().?);
+            errdefer self.alloc.free(name_str);
+            const var_decl = .{
+                .name = name_str,
+                .initializer = initializer,
+            };
+            res.* = Expr{ .VARIABLE = .{ token.getLocation(), var_decl } };
             return res;
         }
         if (self.match(&[_]TokenType{.LEFT_PAREN})) |token| {
