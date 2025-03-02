@@ -256,8 +256,11 @@ pub const VarDecl = struct {
     name: []const u8,
     initializer: ?*Expr,
 
-    pub fn deinit(self: VarDecl, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *const VarDecl, alloc: std.mem.Allocator) void {
+        std.debug.print("deinit vardecl {s}\n", .{self.name});
         alloc.free(self.name);
+        if (self.initializer) |expr| expr.deinit(alloc);
+        alloc.destroy(self);
     }
 };
 
